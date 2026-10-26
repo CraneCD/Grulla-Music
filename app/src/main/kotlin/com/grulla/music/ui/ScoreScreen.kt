@@ -27,11 +27,14 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.selection.toggleable
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
@@ -48,6 +51,7 @@ import androidx.compose.material3.SnackbarHostState
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.material3.rememberModalBottomSheetState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
@@ -74,10 +78,14 @@ import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.core.content.ContextCompat
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import com.grulla.music.AnnotateTool
 import com.grulla.music.ListenMode
 import com.grulla.music.ListeningState
 import com.grulla.music.ScoreUiState
 import com.grulla.music.ScoreViewModel
+import com.grulla.music.core.midi.GeneralMidi
+import com.grulla.music.core.playback.MixState
+import com.grulla.music.core.playback.MixerChannel
 import com.grulla.music.core.playback.PlaybackState
 import com.grulla.music.core.playback.TempoRange
 import com.grulla.music.core.playback.Transport
@@ -117,6 +125,16 @@ interface ScoreActions {
     fun setTrainerOn(on: Boolean)
     /** Loop bars [first]..[last] (bar numbers). */
     fun loopBars(first: Int, last: Int)
+    fun setVolume(track: Int, percent: Int)
+    /** Instrument (General MIDI program) of the part of [track]; null restores the score's. */
+    fun setProgram(track: Int, program: Int?)
+    fun setTranspose(semitones: Int)
+    fun setConcertPitch(enabled: Boolean)
+    fun startAnnotating()
+    fun setAnnotateTool(tool: AnnotateTool)
+    fun setFingering(text: String)
+    fun undoAnnotation()
+    fun stopAnnotating()
 }
 
 @Composable
@@ -229,7 +247,10 @@ fun ScoreScreenContent(
         bottomBar = {
             val listening = ui.listening
             val onMic = { sheet = ScoreSheet.LISTEN }
-            if (listening != null) {
+            val annotating = ui.annotating
+            if (annotating != null) {
+                AnnotationDock(annotating, ui.fingering, actions, dockLayout)
+            } else if (listening != null) {
                 ListeningDock(listening, actions, dockLayout)
             } else if (dockLayout == DockLayout.Compact) {
                 CompactTransportDock(ui, playback, actions, onListen = onMic, onTempo = { sheet = ScoreSheet.TEMPO })
@@ -273,13 +294,14 @@ fun ScoreScreenContent(
                     close()
                     actions.loopBars(first, last)
                 }
+                ScoreSheet.TRANSPOSE -> TransposeSheet(ui, actions)
             }
         }
     }
 }
 
 /** The bottom sheets of the score screen. */
-enum class ScoreSheet { PARTS, TEMPO, LISTEN, PRACTICE }
+enum class ScoreSheet { PARTS, TEMPO, LISTEN, PRACTICE, TRANSPOSE }
 
 @Composable
 private fun ScoreTopBar(
@@ -351,6 +373,25 @@ private fun ScoreTopBar(
                     onClick = { actions.setFollow(!ui.follow) },
                 )
                 HorizontalDivider(color = c.line)
+                DropdownMenuItem(
+                    text = { Text("Transpose") },
+                    leadingIcon = { Icon(AppIcons.Transpose, contentDescription = null) },
+                    trailingIcon = {
+                        if (ui.transpose != 0) Text("%+d".format(ui.transpose), style = MaterialTheme.typography.bodySmall, color = c.graphite)
+                    },
+                    onClick = {
+                        menu = false
+                        onSheet(ScoreSheet.TRANSPOSE)
+                    },
+                )
+                DropdownMenuItem(
+                    text = { Text("Annotate") },
+                    leadingIcon = { Icon(AppIcons.Pen, contentDescription = null) },
+                    onClick = {
+                        menu = false
+                        actions.startAnnotating()
+                    },
+                )
                 DropdownMenuItem(
                     text = { Text("Practice log") },
                     leadingIcon = { Icon(AppIcons.Practice, contentDescription = null) },
@@ -676,32 +717,209 @@ private fun Dock(layout: DockLayout, content: @Composable () -> Unit) {
 @Composable
 private fun MixerSheet(ui: ScoreUiState, actions: ScoreActions) {
     val c = Grulla.colors
+    var choosing by remember { mutableStateOf<MixerChannel?>(null) }
+    Column(
+        Modifier
+            .fillMaxWidth()
+            .navigationBarsPadding()
+            .verticalScroll(rememberScrollState())
+            .padding(horizontal = 20.dp)
+            .padding(bottom = 24.dp),
+        verticalArrangement = Arrangement.spacedBy(8.dp),
+    ) {
+        Text("Parts", style = MaterialTheme.typography.headlineSmall)
+        Text(
+            "Mute a part, or solo it to hear it alone. Follow me listens to the part you choose when you start it.",
+            style = MaterialTheme.typography.bodyMedium,
+            color = c.graphite,
+        )
+        for (channel in ui.mixer) {
+            HorizontalDivider(color = c.line, modifier = Modifier.padding(vertical = 4.dp))
+            Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                Text(channel.label, Modifier.weight(1f), style = MaterialTheme.typography.bodyLarge, maxLines = 2, overflow = TextOverflow.Ellipsis)
+                GrullaChip("Mute", channel.trackIndex in ui.mix.muted, onClick = { actions.toggleMute(channel.trackIndex) })
+                GrullaChip("Solo", channel.trackIndex in ui.mix.soloed, onClick = { actions.toggleSolo(channel.trackIndex) })
+            }
+            if (!channel.percussion) {
+                val chosen = ui.mix.programs[channel.trackIndex]
+                val program = chosen ?: channel.program
+                Surface(
+                    onClick = { choosing = channel },
+                    shape = RoundedCornerShape(10.dp),
+                    color = c.tag,
+                    modifier = Modifier.semantics { contentDescription = "Instrument for ${channel.label}: ${program?.let(GeneralMidi::name) ?: "as written"}, change" },
+                ) {
+                    Row(Modifier.padding(horizontal = 12.dp, vertical = 10.dp), verticalAlignment = Alignment.CenterVertically) {
+                        Text(
+                            program?.let(GeneralMidi::name) ?: "Instrument as written",
+                            style = MaterialTheme.typography.bodyMedium,
+                            color = if (chosen != null) c.indigo else c.ink,
+                        )
+                        Spacer(Modifier.width(6.dp))
+                        Icon(AppIcons.ChevronRight, contentDescription = null, modifier = Modifier.size(16.dp))
+                    }
+                }
+            }
+            VolumeSlider(channel, ui.mix.volume(channel.trackIndex), actions)
+        }
+    }
+    choosing?.let { channel ->
+        InstrumentDialog(
+            current = ui.mix.programs[channel.trackIndex] ?: channel.program,
+            hasOwn = ui.mix.programs.containsKey(channel.trackIndex),
+            onChoose = { program ->
+                choosing = null
+                actions.setProgram(channel.trackIndex, program)
+            },
+            onDismiss = { choosing = null },
+        )
+    }
+}
+
+/** Volume of one part, applied when the slider is released (it re-prepares the music). */
+@Composable
+private fun VolumeSlider(channel: MixerChannel, percent: Int, actions: ScoreActions) {
+    val c = Grulla.colors
+    var value by remember(percent) { mutableFloatStateOf(percent.toFloat()) }
+    Row(verticalAlignment = Alignment.CenterVertically) {
+        Text("Volume", style = MaterialTheme.typography.bodySmall, color = c.graphite, modifier = Modifier.width(60.dp))
+        Slider(
+            value = value,
+            onValueChange = { value = it },
+            onValueChangeFinished = { actions.setVolume(channel.trackIndex, (value / 10).roundToInt() * 10) },
+            valueRange = 0f..MixState.MAX_VOLUME.toFloat(),
+            modifier = Modifier
+                .weight(1f)
+                .semantics { contentDescription = "Volume of ${channel.label}" },
+        )
+        Text(
+            "${(value / 10).roundToInt() * 10}%",
+            style = MaterialTheme.typography.labelMedium.copy(fontFeatureSettings = "tnum"),
+            modifier = Modifier.width(48.dp),
+            textAlign = TextAlign.End,
+        )
+    }
+}
+
+/** The 128 General MIDI instruments by family, plus "as written". */
+@Composable
+private fun InstrumentDialog(current: Int?, hasOwn: Boolean, onChoose: (Int?) -> Unit, onDismiss: () -> Unit) {
+    val c = Grulla.colors
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        containerColor = c.sheet,
+        title = { Text("Instrument") },
+        text = {
+            LazyColumn(Modifier.heightIn(max = 420.dp)) {
+                if (hasOwn) {
+                    item {
+                        DropdownMenuItem(text = { Text("As written in the score", color = c.indigo) }, onClick = { onChoose(null) })
+                    }
+                }
+                for ((family, first) in GeneralMidi.families) {
+                    item { Overline(family, Modifier.padding(start = 12.dp, top = 12.dp, bottom = 4.dp)) }
+                    items((first until first + 8).toList()) { program ->
+                        DropdownMenuItem(
+                            text = { Text(GeneralMidi.name(program)) },
+                            trailingIcon = { if (program == current) Icon(AppIcons.Check, contentDescription = "Current", tint = c.indigo) },
+                            onClick = { onChoose(program) },
+                        )
+                    }
+                }
+            }
+        },
+        confirmButton = { TextButton(onClick = onDismiss) { Text("Cancel") } },
+    )
+}
+
+/** Semitones up or down for notation and sound, and concert pitch for transposing instruments. */
+@Composable
+private fun TransposeSheet(ui: ScoreUiState, actions: ScoreActions) {
+    val c = Grulla.colors
     Column(
         Modifier
             .fillMaxWidth()
             .navigationBarsPadding()
             .padding(horizontal = 20.dp)
             .padding(bottom = 24.dp),
-        verticalArrangement = Arrangement.spacedBy(10.dp),
+        verticalArrangement = Arrangement.spacedBy(12.dp),
     ) {
-        Text("Parts", style = MaterialTheme.typography.headlineSmall)
+        Text("Transpose", style = MaterialTheme.typography.headlineSmall)
         Text(
-            "Mute a part, or solo it to hear it alone. Follow me listens to the parts you can hear.",
+            "Moves the notes and the sound up or down, for example to sing in another key.",
             style = MaterialTheme.typography.bodyMedium,
             color = c.graphite,
         )
-        for (channel in ui.mixer) {
-            Row(
-                Modifier
-                    .fillMaxWidth()
-                    .height(52.dp),
-                verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.spacedBy(8.dp),
-            ) {
-                Text(channel.label, Modifier.weight(1f), style = MaterialTheme.typography.bodyLarge, maxLines = 2, overflow = TextOverflow.Ellipsis)
-                GrullaChip("Mute", channel.trackIndex in ui.mix.muted, onClick = { actions.toggleMute(channel.trackIndex) })
-                GrullaChip("Solo", channel.trackIndex in ui.mix.soloed, onClick = { actions.toggleSolo(channel.trackIndex) })
+        Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.Center) {
+            RoundOutlineButton(AppIcons.Minus, "Down a semitone", onClick = { actions.setTranspose(ui.transpose - 1) }, size = 56.dp,
+                enabled = ui.transpose > -ScoreViewModel.MAX_TRANSPOSE)
+            Column(Modifier.width(150.dp), horizontalAlignment = Alignment.CenterHorizontally) {
+                Text(if (ui.transpose == 0) "0" else "%+d".format(ui.transpose), style = MaterialTheme.typography.displayMedium)
+                Text(semitoneName(ui.transpose), style = MaterialTheme.typography.bodySmall, color = c.graphite)
             }
+            RoundOutlineButton(AppIcons.Add, "Up a semitone", onClick = { actions.setTranspose(ui.transpose + 1) }, size = 56.dp,
+                enabled = ui.transpose < ScoreViewModel.MAX_TRANSPOSE)
+        }
+        Row(horizontalArrangement = Arrangement.spacedBy(10.dp), modifier = Modifier.align(Alignment.CenterHorizontally)) {
+            GhostButton("Octave down", onClick = { actions.setTranspose(ui.transpose - 12) }, enabled = ui.transpose - 12 >= -ScoreViewModel.MAX_TRANSPOSE)
+            GhostButton("Reset", onClick = { actions.setTranspose(0) }, enabled = ui.transpose != 0)
+            GhostButton("Octave up", onClick = { actions.setTranspose(ui.transpose + 12) }, enabled = ui.transpose + 12 <= ScoreViewModel.MAX_TRANSPOSE)
+        }
+        HorizontalDivider(color = c.line)
+        Row(
+            Modifier
+                .fillMaxWidth()
+                .toggleable(value = ui.concertPitch, role = Role.Switch, onValueChange = actions::setConcertPitch),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Column(Modifier.weight(1f)) {
+                Text("Concert pitch", style = MaterialTheme.typography.titleMedium)
+                Text(
+                    "Show transposing instruments (clarinet, horn, saxophone...) as they sound.",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = c.graphite,
+                )
+            }
+            Switch(checked = ui.concertPitch, onCheckedChange = null)
+        }
+    }
+}
+
+/** "2 semitones up", "a fifth down"... */
+internal fun semitoneName(semitones: Int): String {
+    val names = listOf(
+        "unison", "a semitone", "a whole tone", "a minor third", "a major third", "a fourth", "a tritone",
+        "a fifth", "a minor sixth", "a major sixth", "a minor seventh", "a major seventh", "an octave",
+    )
+    if (semitones == 0) return "as written"
+    return names[kotlin.math.abs(semitones)] + if (semitones > 0) " up" else " down"
+}
+
+/** Annotation tools: pencil, fingerings, breath marks, eraser, undo. */
+@Composable
+private fun AnnotationDock(tool: AnnotateTool, fingering: String, actions: ScoreActions, layout: DockLayout) {
+    val c = Grulla.colors
+    Dock(if (layout == DockLayout.Compact) DockLayout.Regular else layout) {
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Text("Annotate", style = MaterialTheme.typography.titleMedium, modifier = Modifier.weight(1f))
+            Text("Two fingers scroll", style = MaterialTheme.typography.bodySmall, color = c.graphite)
+        }
+        FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+            GrullaChip("Pencil", tool == AnnotateTool.PEN, onClick = { actions.setAnnotateTool(AnnotateTool.PEN) }, leadingIcon = AppIcons.Pen)
+            GrullaChip("Fingering", tool == AnnotateTool.FINGERING, onClick = { actions.setAnnotateTool(AnnotateTool.FINGERING) }, leadingIcon = AppIcons.Fingering)
+            GrullaChip("Breath", tool == AnnotateTool.BREATH, onClick = { actions.setAnnotateTool(AnnotateTool.BREATH) }, leadingIcon = AppIcons.Breath)
+            GrullaChip("Eraser", tool == AnnotateTool.ERASER, onClick = { actions.setAnnotateTool(AnnotateTool.ERASER) }, leadingIcon = AppIcons.Eraser)
+        }
+        if (tool == AnnotateTool.FINGERING) {
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                for (digit in listOf("1", "2", "3", "4", "5")) {
+                    GrullaChip(digit, fingering == digit, onClick = { actions.setFingering(digit) })
+                }
+            }
+        }
+        Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+            GhostButton("Undo", onClick = actions::undoAnnotation, icon = AppIcons.Undo)
+            IndigoButton("Done", onClick = actions::stopAnnotating, modifier = Modifier.weight(1f))
         }
     }
 }

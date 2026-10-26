@@ -159,6 +159,27 @@ class PlaybackMidiBuilderTest {
     }
 
     @Test
+    fun `track volume scales velocities and a program replaces the instrument`() {
+        val prepared = PlaybackMidiBuilder.build(source, PlaybackOptions(trackVolumes = mapOf(1 to 50), trackPrograms = mapOf(2 to 40)))
+        val output = MidiReader.read(prepared.bytes)
+        fun velocities(file: MidiFile, track: Int) =
+            file.tracks[track].events.filterIsInstance<MidiEvent.Channel>().filter { it.isNoteOn }.map { it.data2 }
+        val before = velocities(source, 1)
+        val after = velocities(output, 1)
+        assertEquals(before.size, after.size)
+        assertTrue(before.zip(after).all { (b, a) -> abs(a - b / 2.0) <= 0.5 || a == 1 }, "halved: $before -> $after")
+        assertEquals(velocities(source, 2), velocities(output, 2))
+        val programs = output.tracks[2].events.filterIsInstance<MidiEvent.Channel>().filter { it.command == MidiEvent.PROGRAM_CHANGE }
+        assertTrue(programs.isNotEmpty() && programs.all { it.data1 == 40 && it.tick == 0L }, "programs: $programs")
+    }
+
+    @Test
+    fun `volume zero silences a track`() {
+        val output = MidiReader.read(PlaybackMidiBuilder.build(source, PlaybackOptions(trackVolumes = mapOf(2 to 0))).bytes)
+        assertTrue(output.tracks[2].events.none { it is MidiEvent.Channel && it.isNoteOn })
+    }
+
+    @Test
     fun `metronome accents every bar of the score`() {
         val prepared = PlaybackMidiBuilder.build(
             source,

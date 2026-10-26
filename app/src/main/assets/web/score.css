@@ -19,6 +19,7 @@
   --loop-line: rgba(52, 84, 160, 0.50);
   --badge-bg: #15181C;
   --badge-fg: #FFFFFF;
+  --pencil: rgba(52, 84, 160, 0.92);
 }
 
 :root[data-theme="night"] {
@@ -35,6 +36,7 @@
   --loop-line: rgba(157, 178, 236, 0.55);
   --badge-bg: #E4DFD6;
   --badge-fg: #15181C;
+  --pencil: rgba(157, 178, 236, 0.95);
 }
 
 html, body {
@@ -145,6 +147,44 @@ body.spread .page + .page {
 .loop-band.loop-end::after {
   content: 'B';
   right: -3px;
+}
+
+/* Annotations: the user's own marks, in pencil indigo ("you"). */
+#annotations {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  overflow: visible;
+  pointer-events: none;
+}
+
+.mark-pen {
+  fill: none;
+  stroke: var(--pencil);
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
+.mark-text,
+.mark-breath {
+  fill: var(--pencil);
+  font-family: 'Fraunces', Georgia, serif;
+  font-style: italic;
+  font-weight: 700;
+  text-anchor: middle;
+  dominant-baseline: central;
+}
+
+#annotate-capture {
+  position: absolute;
+  inset: 0;
+  touch-action: none;
+  cursor: crosshair;
+}
+
+#annotate-capture[hidden] {
+  display: none;
 }
 
 #cursor {

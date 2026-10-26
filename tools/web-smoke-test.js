@@ -193,6 +193,49 @@ async function shot(page, name) {
     await shot(page, '5-night-listen');
     await page.evaluate(() => window.grulla.setTheme('day'));
 
+    // Annotations: draw a pencil stroke over measure 3, re-flow, and it stays with the measure.
+    await page.evaluate(() => window.grulla.setLayout({ mode: 'continuous', scale: 40 }));
+    await page.waitForFunction(() => !document.body.classList.contains('mode-page'));
+    await page.waitForTimeout(300);
+    await page.evaluate(() => { window.grulla.clearHighlight(); window.scrollTo(0, 0); window.grulla.annotate('pen'); });
+    const m3 = await page.locator('g.measure').nth(2).boundingBox();
+    mark = await eventCount(page);
+    await page.mouse.move(m3.x + m3.width * 0.3, m3.y + m3.height * 0.3);
+    await page.mouse.down();
+    for (let i = 1; i <= 10; i++) await page.mouse.move(m3.x + m3.width * (0.3 + i * 0.04), m3.y + m3.height * 0.3 + (i % 2) * 8);
+    await page.mouse.up();
+    const drawn = JSON.parse((await waitForEvent(page, 'onAnnotationsChanged', mark)).args[0]);
+    check(drawn.marks.length === 1 && drawn.marks[0].kind === 'pen' && drawn.marks[0].m === 2, 'pen stroke anchored to measure 3');
+    check(await page.locator('#annotations path').count() === 1, 'stroke drawn');
+    await page.evaluate(() => window.grulla.annotate('text', '3'));
+    mark = await eventCount(page);
+    await page.mouse.click(m3.x + m3.width * 0.6, m3.y + 10);
+    const withText = JSON.parse((await waitForEvent(page, 'onAnnotationsChanged', mark)).args[0]);
+    check(withText.marks.length === 2 && withText.marks[1].text === '3', 'fingering 3 placed');
+    check(await page.evaluate(() => window.grullaEvents.filter((e) => e.name === 'onMeasureTapped').length) === 1,
+      'taps while annotating do not seek');
+    await shot(page, '7-annotations');
+    await page.evaluate(() => window.grulla.setLayout({ mode: 'continuous', scale: 70 }));
+    await page.waitForFunction(() => document.querySelector('#annotations path') !== null && window.scrollY >= 0);
+    await page.waitForTimeout(500);
+    const after = await page.evaluate(() => {
+      const p = document.querySelector('#annotations path').getBoundingClientRect();
+      const m = document.querySelectorAll('g.measure')[2].getBoundingClientRect();
+      return { inside: p.left >= m.left - 5 && p.right <= m.right + 5 && p.top >= m.top - 40 && p.bottom <= m.bottom + 40 };
+    });
+    check(after.inside, 'the stroke follows measure 3 after zooming');
+    await page.evaluate(() => window.grulla.annotate('erase'));
+    const textBox = await page.locator('#annotations text').boundingBox();
+    mark = await eventCount(page);
+    await page.mouse.click(textBox.x + textBox.width / 2, textBox.y + textBox.height / 2);
+    const erased = JSON.parse((await waitForEvent(page, 'onAnnotationsChanged', mark)).args[0]);
+    check(erased.marks.length === 1 && erased.marks[0].kind === 'pen', 'eraser removes the fingering');
+    mark = await eventCount(page);
+    await page.evaluate(() => window.grulla.undoAnnotation());
+    check(JSON.parse((await waitForEvent(page, 'onAnnotationsChanged', mark)).args[0]).marks.length === 2, 'undo brings it back');
+    await page.evaluate(() => { window.grulla.annotate(null); window.grulla.setAnnotations('{"marks": []}'); });
+    check(await page.locator('#annotations *').count() === 0, 'setAnnotations replaces the marks');
+
     // Continuous view: turn(1) scrolls down by about a screenful.
     await page.evaluate(() => window.grulla.setLayout({ mode: 'continuous', scale: 70 }));
     await page.waitForFunction(() => !document.body.classList.contains('mode-page') && document.querySelectorAll('.page').length > 0);

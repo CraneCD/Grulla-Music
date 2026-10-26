@@ -13,13 +13,32 @@ data class MixerChannel(
     val trackIndex: Int,
     val partId: String?,
     val label: String,
+    /** The score's General MIDI program for this track, if it sets one. */
+    val program: Int? = null,
+    /** Plays on the GM percussion channel (no instrument choice). */
+    val percussion: Boolean = false,
 )
 
-/** Mute / solo state, keyed by MIDI track index. */
+/** Mute / solo, volume and instrument choices, keyed by MIDI track index. */
 data class MixState(
     val muted: Set<Int> = emptySet(),
     val soloed: Set<Int> = emptySet(),
+    /** Percent of the written dynamics; missing means 100. */
+    val volumes: Map<Int, Int> = emptyMap(),
+    /** Chosen General MIDI program; missing means the score's own. */
+    val programs: Map<Int, Int> = emptyMap(),
 ) {
+    fun volume(track: Int): Int = volumes[track] ?: 100
+
+    fun withVolume(track: Int, percent: Int): MixState {
+        val clamped = percent.coerceIn(0, MAX_VOLUME)
+        return copy(volumes = if (clamped == 100) volumes - track else volumes + (track to clamped))
+    }
+
+    /** Sets [program] for [tracks] (all staves of one part share an instrument); null restores the score's. */
+    fun withProgram(tracks: Collection<Int>, program: Int?): MixState =
+        copy(programs = if (program == null) programs - tracks.toSet() else programs + tracks.associateWith { program })
+
     /** Tracks that must not sound: the muted ones, or everything outside the solo set. */
     fun silencedTracks(channels: List<MixerChannel>): Set<Int> {
         val all = channels.map { it.trackIndex }.toSet()
@@ -32,6 +51,10 @@ data class MixState(
     fun toggleSolo(track: Int) = copy(soloed = soloed.toggle(track))
 
     private fun Set<Int>.toggle(value: Int) = if (value in this) this - value else this + value
+
+    companion object {
+        const val MAX_VOLUME = 150
+    }
 }
 
 object Mixer {
@@ -49,12 +72,14 @@ object Mixer {
             var track = first
             return parts.flatMap { part ->
                 (1..part.staves).map { staff ->
-                    MixerChannel(track++, part.id, label(part, staff))
+                    val index = track++
+                    MixerChannel(index, part.id, label(part, staff), midi.tracks[index].program(), midi.tracks[index].isPercussion())
                 }
             }.filter { it.trackIndex in musicTracks }
         }
         return musicTracks.map { index ->
-            MixerChannel(index, null, midi.tracks[index].name() ?: "Track $index")
+            val t = midi.tracks[index]
+            MixerChannel(index, null, t.name() ?: "Track $index", t.program(), t.isPercussion())
         }
     }
 
@@ -63,6 +88,13 @@ object Mixer {
         part.staves == 2 -> "${part.name} – ${if (staff == 1) "upper" else "lower"} staff"
         else -> "${part.name} – staff $staff"
     }
+
+    private fun MidiTrack.program(): Int? = events.asSequence()
+        .filterIsInstance<MidiEvent.Channel>()
+        .firstOrNull { it.command == MidiEvent.PROGRAM_CHANGE }
+        ?.data1
+
+    private fun MidiTrack.isPercussion() = events.any { it is MidiEvent.Channel && it.isNoteOn && it.channel == MidiEvent.PERCUSSION_CHANNEL }
 
     private fun MidiTrack.hasNotes() = events.any { it is MidiEvent.Channel && it.isNoteOn }
 

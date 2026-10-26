@@ -52,6 +52,11 @@ sealed interface WebCommand {
     /** Shade measures [firstId]..[lastId]; null clears the loop shading. */
     data class SetLoop(val firstId: String?, val lastId: String?) : WebCommand
     data class Thumbnail(val width: Int) : WebCommand
+    /** The saved marks of the score ({"marks": [...]}, see annotate.js). */
+    data class SetAnnotations(val json: String) : WebCommand
+    /** Start drawing with [tool] ("pen", "text", "breath", "erase"), or stop with null. */
+    data class Annotate(val tool: String?, val text: String = "1") : WebCommand
+    data object UndoAnnotation : WebCommand
 
     /** Guarded so that calls made before score.js has loaded are dropped instead of throwing. */
     fun toJavaScript(): String = "window.grulla && " + when (this) {
@@ -65,6 +70,9 @@ sealed interface WebCommand {
         is CountIn -> "grulla.countIn($beat, $total)"
         is SetLoop -> "grulla.setLoop(${firstId?.let(JSONObject::quote)}, ${lastId?.let(JSONObject::quote)})"
         is Thumbnail -> "grulla.thumbnail($width)"
+        is SetAnnotations -> "grulla.setAnnotations(${JSONObject.quote(json)})"
+        is Annotate -> "grulla.annotate(${tool?.let(JSONObject::quote)}, ${JSONObject.quote(text)})"
+        UndoAnnotation -> "grulla.undoAnnotation()"
     }
 
     private fun layoutJson(scale: Int, mode: LayoutMode) =
@@ -84,6 +92,7 @@ interface ScoreWebCallbacks {
     fun onPageChanged(page: Int, pageCount: Int, spread: Boolean)
     fun onWebError(message: String)
     fun onThumbnail(pngDataUrl: String)
+    fun onAnnotationsChanged(json: String)
 }
 
 /**
@@ -298,6 +307,9 @@ private class ScoreHostBridge(private val callbacks: ScoreWebCallbacks) {
 
     @JavascriptInterface
     fun onThumbnail(pngDataUrl: String) = onMain { onThumbnail(pngDataUrl) }
+
+    @JavascriptInterface
+    fun onAnnotationsChanged(json: String) = onMain { onAnnotationsChanged(json) }
 
     @JavascriptInterface
     fun onError(message: String) {

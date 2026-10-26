@@ -46,6 +46,7 @@ sealed class MidiEvent {
     companion object {
         const val NOTE_OFF = 0x80
         const val NOTE_ON = 0x90
+        const val PROGRAM_CHANGE = 0xC0
         const val META_MARKER = 0x06
         const val META_END_OF_TRACK = 0x2F
         const val META_TEMPO = 0x51

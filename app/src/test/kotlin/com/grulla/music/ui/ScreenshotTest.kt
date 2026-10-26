@@ -12,6 +12,7 @@ import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.test.junit4.createComposeRule
 import androidx.compose.ui.test.onRoot
 import com.github.takahirom.roborazzi.captureRoboImage
+import com.grulla.music.AnnotateTool
 import com.grulla.music.ListenMode
 import com.grulla.music.ListeningState
 import com.grulla.music.TrainerState
@@ -21,7 +22,9 @@ import java.time.LocalDate
 import com.grulla.music.ScoreUiState
 import com.grulla.music.audio.AudioState
 import com.grulla.music.audio.EngineChoice
+import com.grulla.music.core.library.Library
 import com.grulla.music.core.library.LibraryEntry
+import com.grulla.music.core.library.Setlist
 import com.grulla.music.core.library.ScoreSettings
 import com.grulla.music.core.playback.MixState
 import com.grulla.music.core.playback.MixerChannel
@@ -78,6 +81,25 @@ class ScreenshotTest {
     private val NoActions: ScoreActions =
         Proxy.newProxyInstance(ScoreActions::class.java.classLoader, arrayOf(ScoreActions::class.java)) { _, _, _ -> null } as ScoreActions
 
+    private val NoLibraryActions: LibraryActions =
+        Proxy.newProxyInstance(LibraryActions::class.java.classLoader, arrayOf(LibraryActions::class.java)) { _, method, _ ->
+            if (method.returnType == String::class.java) "s" else null
+        } as LibraryActions
+
+    private val gnossienne = LibraryEntry(
+        id = "gnossienne",
+        uri = "content://example/gnossienne-1.mxl",
+        title = "Gnossienne No. 1",
+        composer = "Erik Satie",
+        lastOpened = 0,
+        addedAt = now - 3_600_000,
+    )
+
+    private val library = Library(
+        listOf(ode, peaceful, gnossienne),
+        listOf(Setlist("recital", "Spring recital", listOf("peaceful", "ode")), Setlist("warmups", "Warm-ups")),
+    )
+
     private val mixer = listOf(MixerChannel(1, "P1", "Piano – upper staff"), MixerChannel(2, "P1", "Piano – lower staff"))
 
     private val scoreUi = ScoreUiState(
@@ -111,12 +133,18 @@ class ScreenshotTest {
     @Test
     fun libraryDay() = capture("library-day", ThemeMode.LIGHT) {
         val thumb = image("score-day.png")
-        LibraryContent(listOf(ode, peaceful), thumbnail = { _, m -> ThumbnailImage(thumb, m) }, {}, {}, {}, {}, {})
+        LibraryContent(library, LibraryView(), {}, thumbnail = { _, m -> ThumbnailImage(thumb, m) }, NoLibraryActions)
+    }
+
+    @Test
+    fun librarySetlistSearchNight() = capture("library-setlist-night", ThemeMode.DARK) {
+        val thumb = image("score-night.png")
+        LibraryContent(library, LibraryView(setlistId = "recital"), {}, thumbnail = { _, m -> ThumbnailImage(thumb, m) }, NoLibraryActions, importing = 12)
     }
 
     @Test
     fun libraryEmptyNight() = capture("library-empty-night", ThemeMode.DARK) {
-        LibraryContent(emptyList(), thumbnail = { _, m -> ThumbnailImage(null, m) }, {}, {}, {}, {}, {})
+        LibraryContent(Library(), LibraryView(), {}, thumbnail = { _, m -> ThumbnailImage(null, m) }, NoLibraryActions)
     }
 
     @Test
@@ -208,6 +236,33 @@ class ScreenshotTest {
         )
         ScoreScreenContent(ui, playing.copy(transport = Transport.WAITING), BarInfo(6, 16), NoActions, {}, {}, { _, _ -> }) {
             ScoreImage("score-follow.png", it)
+        }
+    }
+
+    @Test
+    fun annotateDay() = capture("annotate-day", ThemeMode.LIGHT) {
+        val ui = scoreUi.copy(annotating = AnnotateTool.FINGERING, fingering = "3")
+        ScoreScreenContent(ui, playing.copy(transport = Transport.PAUSED), BarInfo(3, 16), NoActions, {}, {}, { _, _ -> }) {
+            ScoreImage("score-annotated.png", it)
+        }
+    }
+
+    @Test
+    fun transposeSheetNight() = capture("transpose-sheet-night", ThemeMode.DARK) {
+        ScoreScreenContent(scoreUi.copy(transpose = -3), playing, BarInfo(3, 16), NoActions, {}, {}, { _, _ -> }, openSheet = ScoreSheet.TRANSPOSE) {
+            ScoreImage("score-night.png", it)
+        }
+    }
+
+    @Test
+    fun mixerSheetDay() = capture("mixer-sheet-day", ThemeMode.LIGHT) {
+        val ui = scoreUi.copy(
+            mixer = listOf(MixerChannel(1, "P1", "Flute", program = 73), MixerChannel(2, "P2", "Piano – upper staff", program = 0),
+                MixerChannel(3, "P2", "Piano – lower staff", program = 0)),
+            mix = MixState(muted = setOf(3), volumes = mapOf(1 to 120), programs = mapOf(2 to 6, 3 to 6)),
+        )
+        ScoreScreenContent(ui, playing, BarInfo(3, 16), NoActions, {}, {}, { _, _ -> }, openSheet = ScoreSheet.PARTS) {
+            ScoreImage("score-day.png", it)
         }
     }
 

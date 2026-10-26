@@ -97,6 +97,7 @@ class MainActivity : ComponentActivity() {
                             settingsReturn = Screen.LIBRARY
                             screen = Screen.SETTINGS
                         },
+                        onRemoved = { app.practice.remove(it.id) },
                     )
                     Screen.SCORE -> {
                         BackHandler(onBack = toLibrary)

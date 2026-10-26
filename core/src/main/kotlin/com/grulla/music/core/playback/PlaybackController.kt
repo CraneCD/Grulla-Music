@@ -93,6 +93,8 @@ class PlaybackController(
     private var tracker: HighlightTracker? = null
     private var measureStartsQuarters: List<Double> = emptyList()
     private var silencedTracks: Set<Int> = emptySet()
+    private var trackVolumes: Map<Int, Int> = emptyMap()
+    private var trackPrograms: Map<Int, Int> = emptyMap()
     private val smoother = PositionSmoother()
 
     /** Score position where the next play() starts when nothing is resumable. */
@@ -131,6 +133,8 @@ class PlaybackController(
         tracker = HighlightTracker(ActiveNoteIndex(timemap))
         measureStartsQuarters = timemap.measures.map { it.qstamp }
         silencedTracks = emptySet()
+        trackVolumes = emptyMap()
+        trackPrograms = emptyMap()
         mutableState.update {
             it.copy(durationMs = timemap.durationMs, positionMs = 0.0, hasScore = true, loop = null, loopEnabled = false)
         }
@@ -243,6 +247,14 @@ class PlaybackController(
         restartIfRunning()
     }
 
+    /** Volume (percent) and General MIDI program per track, from the mixer. */
+    fun setTrackSound(volumes: Map<Int, Int>, programs: Map<Int, Int>) {
+        if (volumes == trackVolumes && programs == trackPrograms) return
+        trackVolumes = volumes
+        trackPrograms = programs
+        restartIfRunning()
+    }
+
     /** Sets (and enables) the A–B loop, or clears it with null. */
     fun setLoop(range: TimeRange?) {
         mutableState.update { it.copy(loop = range, loopEnabled = range != null) }
@@ -322,6 +334,8 @@ class PlaybackController(
             metronome = metronome.takeIf { state.value.metronomeEnabled },
             measureStartsQuarters = measureStartsQuarters,
             silencedTracks = silencedTracks,
+            trackVolumes = trackVolumes,
+            trackPrograms = trackPrograms,
         )
         job = scope.launch {
             val run = try {

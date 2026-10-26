@@ -95,7 +95,17 @@ data class ScoreUiState(
     val trainer: TrainerState? = null,
     /** The part(s) the user plays, chosen when starting Follow me / Wait for me. */
     val myTracks: Set<Int> = emptySet(),
+    /** Semitones, applied to notation and sound. */
+    val transpose: Int = 0,
+    val concertPitch: Boolean = false,
+    /** Drawing on the score with this tool; null when not annotating. */
+    val annotating: AnnotateTool? = null,
+    /** The fingering the text tool places. */
+    val fingering: String = "1",
 )
+
+/** Annotation tools; [js] is the tool name in annotate.js. */
+enum class AnnotateTool(val js: String) { PEN("pen"), FINGERING("text"), BREATH("breath"), ERASER("erase") }
 
 data class TrainerState(val tempoPercent: Int, val passes: Int, val repeats: Int, val reachedTarget: Boolean)
 
@@ -229,6 +239,7 @@ class ScoreViewModel(application: Application) :
             val title = score.title ?: name.ifBlank { "Score" }
             currentUri = uri
             val entry = library.opened(uri, title, score.composer)
+            annotationsJson = withContext(Dispatchers.IO) { runCatching { library.loadAnnotations(entry.id) }.getOrNull() } ?: NO_ANNOTATIONS
             entryId.value = entry.id
             savedSettings = entry.settings
             thumbnailWanted = library.thumbnailFile(entry) == null
@@ -264,6 +275,9 @@ class ScoreViewModel(application: Application) :
                 spread = false,
                 trainer = null,
                 scale = settings.scale ?: DEFAULT_SCALE,
+                transpose = settings.transpose,
+                concertPitch = settings.concertPitch,
+                annotating = null,
                 layoutMode = if (settings.pageLayout == true) LayoutMode.PAGE else LayoutMode.CONTINUOUS,
                 follow = settings.follow,
             )
@@ -274,7 +288,23 @@ class ScoreViewModel(application: Application) :
     private fun sendLoad() {
         if (scoreBytes == null) return
         val state = mutableUi.value
-        commandChannel.trySend(WebCommand.Load(ScoreOrigin.scoreUrl(scoreVersion), state.scale, state.layoutMode))
+        val transpose = if (state.transpose == 0) "" else "%+d".format(state.transpose)
+        commandChannel.trySend(WebCommand.Load(ScoreOrigin.scoreUrl(scoreVersion), state.scale, state.layoutMode, transpose, state.concertPitch))
+        commandChannel.trySend(WebCommand.SetAnnotations(annotationsJson))
+        state.annotating?.let { commandChannel.trySend(WebCommand.Annotate(it.js, state.fingering)) }
+    }
+
+    /** Lays the score out again from the file, keeping the settings (after transposing). */
+    private fun reload() {
+        stopListening()
+        saveSettingsNow()
+        playback.stop()
+        scoreVersion++
+        rendered = null
+        timemap = null
+        playback.clearScore()
+        mutableUi.update { it.copy(loading = true, ready = false) }
+        if (webReady) sendLoad()
     }
 
     /** Leaving the score screen: stop the music and remember where we were. */
@@ -302,6 +332,10 @@ class ScoreViewModel(application: Application) :
         trainer = ui.trainerSettings,
         trainerOn = ui.trainer != null,
         myTracks = ui.myTracks,
+        transpose = ui.transpose,
+        concertPitch = ui.concertPitch,
+        trackVolumes = ui.mix.volumes,
+        trackPrograms = ui.mix.programs,
     )
 
     /** Saves settings when they have been stable for a moment (so not continuously while playing). */
@@ -349,7 +383,14 @@ class ScoreViewModel(application: Application) :
         playback.setCountInEnabled(settings.countIn)
         playback.setMetronomeEnabled(settings.metronome)
         val tracks = mutableUi.value.mixer.map { it.trackIndex }.toSet()
-        updateMix { MixState(muted = settings.mutedTracks intersect tracks, soloed = settings.soloedTracks intersect tracks) }
+        updateMix {
+            MixState(
+                muted = settings.mutedTracks intersect tracks,
+                soloed = settings.soloedTracks intersect tracks,
+                volumes = settings.trackVolumes.filterKeys { it in tracks },
+                programs = settings.trackPrograms.filterKeys { it in tracks },
+            )
+        }
         val start = settings.loopStartMs
         val end = settings.loopEndMs
         if (start != null && end != null && end > start && end <= map.durationMs + 1) {
@@ -719,6 +760,7 @@ class ScoreViewModel(application: Application) :
     // --- User actions --------------------------------------------------------------
 
     override fun togglePlay() {
+        if (mutableUi.value.annotating != null) stopAnnotating()
         stopListening()
         playback.togglePlay()
     }
@@ -792,6 +834,69 @@ class ScoreViewModel(application: Application) :
             else -> state.mix.silencedTracks(state.mixer)
         }
         playback.setSilencedTracks(silenced)
+        playback.setTrackSound(state.mix.volumes, state.mix.programs)
+    }
+
+    // --- Mixer: volume and instrument -------------------------------------------------
+
+    override fun setVolume(track: Int, percent: Int) = updateMix { it.withVolume(track, percent) }
+
+    /** Sets the instrument of the part [track] belongs to (all its staves); null restores the score's. */
+    override fun setProgram(track: Int, program: Int?) {
+        val mixer = mutableUi.value.mixer
+        val partId = mixer.firstOrNull { it.trackIndex == track }?.partId
+        val tracks = if (partId == null) listOf(track) else mixer.filter { it.partId == partId }.map { it.trackIndex }
+        updateMix { it.withProgram(tracks, program) }
+    }
+
+    // --- Transpose ---------------------------------------------------------------------
+
+    override fun setTranspose(semitones: Int) {
+        val value = semitones.coerceIn(-MAX_TRANSPOSE, MAX_TRANSPOSE)
+        if (value == mutableUi.value.transpose) return
+        mutableUi.update { it.copy(transpose = value) }
+        reload()
+    }
+
+    override fun setConcertPitch(enabled: Boolean) {
+        if (enabled == mutableUi.value.concertPitch) return
+        mutableUi.update { it.copy(concertPitch = enabled) }
+        reload()
+    }
+
+    // --- Annotations ----------------------------------------------------------------------
+
+    /** The open score's marks, as last reported by the score view. */
+    private var annotationsJson = NO_ANNOTATIONS
+
+    override fun onAnnotationsChanged(json: String) {
+        annotationsJson = json
+        entryId.value?.let { library.saveAnnotations(it, json) }
+    }
+
+    override fun startAnnotating() {
+        stopListening()
+        playback.pause()
+        setAnnotateTool(mutableUi.value.annotating ?: AnnotateTool.PEN)
+    }
+
+    override fun setAnnotateTool(tool: AnnotateTool) {
+        mutableUi.update { it.copy(annotating = tool) }
+        commandChannel.trySend(WebCommand.Annotate(tool.js, mutableUi.value.fingering))
+    }
+
+    override fun setFingering(text: String) {
+        mutableUi.update { it.copy(fingering = text, annotating = AnnotateTool.FINGERING) }
+        commandChannel.trySend(WebCommand.Annotate(AnnotateTool.FINGERING.js, text))
+    }
+
+    override fun undoAnnotation() {
+        commandChannel.trySend(WebCommand.UndoAnnotation)
+    }
+
+    override fun stopAnnotating() {
+        mutableUi.update { it.copy(annotating = null) }
+        commandChannel.trySend(WebCommand.Annotate(null))
     }
 
     override fun setFollow(enabled: Boolean) = mutableUi.update { it.copy(follow = enabled) }
@@ -849,6 +954,8 @@ class ScoreViewModel(application: Application) :
         private const val SCALE_STEP = 5
         private const val AUTOSAVE_DELAY_MS = 800L
         private const val THUMBNAIL_WIDTH = 240
+        private const val NO_ANNOTATIONS = "{\"marks\":[]}"
+        const val MAX_TRANSPOSE = 12
         private const val PRACTICE_TICK_MS = 5_000L
 
         /** Wait for me: notes heard earlier than this before the expected one are taken as the accompaniment. */

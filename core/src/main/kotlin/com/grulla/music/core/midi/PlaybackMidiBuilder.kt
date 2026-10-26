@@ -43,6 +43,10 @@ data class PlaybackOptions(
     val measureStartsQuarters: List<Double> = emptyList(),
     /** MIDI tracks whose notes are left out (mute / solo). */
     val silencedTracks: Set<Int> = emptySet(),
+    /** Volume per MIDI track in percent of the written dynamics (100 = as written). */
+    val trackVolumes: Map<Int, Int> = emptyMap(),
+    /** General MIDI program (0-127) per MIDI track, replacing the score's instrument. */
+    val trackPrograms: Map<Int, Int> = emptyMap(),
 ) {
     init {
         require(tempoFactor > 0.0) { "tempoFactor must be positive" }
@@ -94,8 +98,10 @@ object PlaybackMidiBuilder {
             sourceTracks += metronomeTrack(source, options.metronome, options.measureStartsQuarters, endTick ?: lastSourceTick)
         }
         val tracks = sourceTracks.mapIndexed { index, track ->
-            val silenced = index in options.silencedTracks
+            val silenced = index in options.silencedTracks || options.trackVolumes[index] == 0
             val shifted = shiftTrack(track, startTick, endTick, leadTicks, factor, silenced)
+                .let { events -> options.trackVolumes[index]?.let { scaleVelocities(events, it) } ?: events }
+                .let { events -> options.trackPrograms[index]?.let { replaceProgram(events, it) } ?: events }
             if (index == 0) {
                 // The tempo in effect at the start point governs the count-in and the first notes.
                 val tempo = MidiEvent.tempo(0, scaleTempo(sourceTempo.microsAt(startTick), factor))
@@ -154,6 +160,28 @@ object PlaybackMidiBuilder {
             }
         }
         return result
+    }
+
+    /** Scales note-on velocities by [percent] (a note-on keeps at least velocity 1, else it would be a note-off). */
+    private fun scaleVelocities(events: List<MidiEvent>, percent: Int): List<MidiEvent> {
+        if (percent == 100) return events
+        return events.map { event ->
+            if (event is MidiEvent.Channel && event.isNoteOn) {
+                MidiEvent.Channel(event.tick, event.status, event.data1, (event.data2 * percent / 100.0).roundToInt().coerceIn(1, 127))
+            } else {
+                event
+            }
+        }
+    }
+
+    /** Drops the track's program changes and sets [program] at the start on every (melodic) channel it uses. */
+    private fun replaceProgram(events: List<MidiEvent>, program: Int): List<MidiEvent> {
+        val channels = events.filterIsInstance<MidiEvent.Channel>()
+            .map { it.channel }
+            .filter { it != MidiEvent.PERCUSSION_CHANNEL }
+            .toSortedSet()
+        val changes = channels.map { MidiEvent.Channel(0, MidiEvent.PROGRAM_CHANGE or it, program.coerceIn(0, 127), 0) }
+        return changes + events.filterNot { it is MidiEvent.Channel && it.command == MidiEvent.PROGRAM_CHANGE && it.channel in channels }
     }
 
     private fun isNote(event: MidiEvent) = event is MidiEvent.Channel && (event.isNoteOn || event.isNoteOff)
