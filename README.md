@@ -56,8 +56,13 @@ MuseScore code (see [Licensing](#licensing)). In English and Spanish.
 - **Languages and accessibility.** English and Spanish (per-app language on Android 13+).
   TalkBack labels, headings and an adjustable position slider; text up to 200 % without
   clipping; 48 dp touch targets.
-- **Private.** No account, no ads, no tracking, no internet permission. The microphone is
-  only used during Follow me and Wait for me, and nothing is recorded
+- **Find scores.** Search a catalogue of free scores (OpenScore Lieder and String Quartets,
+  CC0; a public-domain selection of PDMX) by title, composer, instrument and difficulty, and
+  download them into the library. The catalogue is built by `tools/catalog/` and hosted on
+  this repository's `catalog` branch.
+- **Private.** No account, no ads, no tracking. The internet is used only to download the
+  score catalogue and the scores you choose. The microphone is only used during Follow me and
+  Wait for me, and nothing is recorded
   ([privacy policy](docs/PRIVACY.md)).
 
 ### Design: "Crane & Ink"
@@ -92,6 +97,7 @@ app (Android, Compose)
 │   ├─ AudioEngine: SwitchableMidiPlayer (FluidSynth or MediaPlayer), SoundFonts
 │   ├─ LibraryRepository: library.json, thumbnails, annotations, setlists, folder import
 │   ├─ PracticeRepository: practice.json
+│   ├─ CatalogRepository: online score catalogue (index cache, downloads → download:<id>)
 │   └─ AppearanceSettings, PlayerSettings, AppLanguage
 ├─ ScoreViewModel: open/save a score, web callbacks, transport, loop, mixer, transpose,
 │                  annotations, speed trainer, Follow me / Wait for me, practice log
@@ -113,6 +119,7 @@ core (pure Kotlin/JVM, unit tested)
 ├─ midi/      MidiReader/Writer, TempoMap, PlaybackMidiBuilder (range, tempo, mix, clicks), GeneralMidi
 ├─ playback/  PlaybackController (incl. holds for Wait for me), PlaybackWindow, ActiveNoteIndex, Mixer
 ├─ library/   Library (search, sort, setlists, import), ScoreSettings
+├─ catalog/   Catalog (the online catalogue's index and its search)
 ├─ practice/  SpeedTrainer, PracticeLog (time, loops, trouble bars)
 └─ listen/    YinPitchDetector, NoteEventDetector, ChordDetector, FollowScore, FollowController
 ```

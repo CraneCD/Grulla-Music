@@ -25,6 +25,8 @@
     <string name="bar_of">compás %1$d de %2$d</string>
     <string name="breath">Respiración</string>
     <string name="cancel">Cancelar</string>
+    <string name="catalog_credits">Partituras de OpenScore Lieder y String Quartets (CC0) y de PDMX (partituras de dominio público de MuseScore.com; Long et al., 2024). Solo música de compositores fallecidos hasta 1930, o música tradicional.</string>
+    <string name="catalog_offline">No se pudo descargar el catálogo de partituras. Revisa la conexión.</string>
     <string name="choose_soundfont">Elegir SoundFont…</string>
     <string name="clear_loop">Quitar el bucle</string>
     <string name="clear_search">Borrar la búsqueda</string>
@@ -38,6 +40,8 @@
     <string name="delete_setlist">Eliminar repertorio</string>
     <string name="done">Listo</string>
     <string name="down_semitone">Bajar un semitono</string>
+    <string name="download">Descargar</string>
+    <string name="download_failed">No se pudo descargar la partitura.</string>
     <string name="duration_hours">%1$d h %2$s min</string>
     <string name="duration_minutes">%1$d min</string>
     <string name="early_turn">Pasar página en el último compás</string>
@@ -60,6 +64,9 @@
     <string name="error_score_view">No se pudo mostrar la partitura (%1$s).</string>
     <string name="error_too_large">El archivo es demasiado grande para abrirlo.</string>
     <string name="error_unreadable_detail">No se pudo leer el archivo (%1$s).</string>
+    <string name="find_hint">Título, compositor o instrumento</string>
+    <string name="find_scores">Buscar partituras</string>
+    <string name="find_scores_online">Buscar partituras en línea</string>
     <string name="fingering">Digitación</string>
     <string name="follow_me">Sígueme</string>
     <string name="follow_me_button">Practicar con el micrófono</string>
@@ -67,10 +74,23 @@
     <string name="how_strict">Exigencia</string>
     <string name="import_folder">Importar una carpeta</string>
     <string name="import_none">No hay partituras MusicXML en esa carpeta.</string>
+    <string name="in_library">En tu biblioteca</string>
     <string name="in_total">En total</string>
     <string name="instrument">Instrumento</string>
     <string name="instrument_as_written">Instrumento de la partitura</string>
+    <string name="instrument_cello">Violonchelo</string>
+    <string name="instrument_clarinet">Clarinete</string>
     <string name="instrument_description">Instrumento de %1$s: %2$s, cambiar</string>
+    <string name="instrument_flute">Flauta</string>
+    <string name="instrument_guitar">Guitarra</string>
+    <string name="instrument_harp">Arpa</string>
+    <string name="instrument_organ">Órgano</string>
+    <string name="instrument_piano">Piano</string>
+    <string name="instrument_recorder">Flauta dulce</string>
+    <string name="instrument_trumpet">Trompeta</string>
+    <string name="instrument_viola">Viola</string>
+    <string name="instrument_violin">Violín</string>
+    <string name="instrument_voice">Voz</string>
     <string name="interval_down">%1$s hacia abajo</string>
     <string name="interval_up">%1$s hacia arriba</string>
     <string name="keep_notes_on_screen">Mantener las notas a la vista</string>
@@ -79,6 +99,9 @@
     <string name="language_system_detail">Español o inglés, según el teléfono.</string>
     <string name="last_7_days">Últimos 7 días</string>
     <string name="less">Menos: %1$s</string>
+    <string name="level_easy">Fácil</string>
+    <string name="level_hard">Difícil</string>
+    <string name="level_medium">Media</string>
     <string name="library">Biblioteca</string>
     <string name="license_app">Grulla Music es de código abierto, con licencia MIT.</string>
     <string name="listen_hearing">Escucho %1$s</string>
@@ -125,7 +148,8 @@
     <string name="practice">Práctica</string>
     <string name="practice_log">Registro de práctica</string>
     <string name="previous_page">Página anterior</string>
-    <string name="privacy_note">Privada por diseño: sin cuenta, sin anuncios, sin rastreo. El micrófono solo se usa durante Sígueme y Espérame; el sonido se analiza en el teléfono y nunca se graba ni se envía a ningún sitio.</string>
+    <string name="privacy_note">Privada por diseño: sin cuenta, sin anuncios, sin rastreo. Internet solo se usa para descargar el catálogo de partituras y las que elijas. El micrófono solo se usa durante Sígueme y Espérame; el sonido se analiza en el teléfono y nunca se graba ni se envía a ningún sitio.</string>
+    <string name="public_domain">Dominio público</string>
     <string name="reading">Lectura</string>
     <string name="recent">Recientes</string>
     <string name="remove_from_library">Quitar de la biblioteca</string>
@@ -134,6 +158,7 @@
     <string name="rename_setlist">Cambiar el nombre del repertorio</string>
     <string name="reset">Restablecer</string>
     <string name="reset_to_100" formatted="false">Volver al 100 %</string>
+    <string name="results_many">Muchas coincidencias. Se muestran %1$d; añade una palabra para afinar.</string>
     <string name="save">Guardar</string>
     <string name="search_hint">Busca títulos y compositores</string>
     <string name="setlist">Repertorio</string>
@@ -191,6 +216,7 @@
     <string name="transpose_explained">Sube o baja las notas y el sonido, por ejemplo para cantar en otra tonalidad.</string>
     <string name="trouble_bars">Compases difíciles</string>
     <string name="trouble_bars_empty">Toca con Sígueme y aquí aparecerán los compases con más notas falladas, listos para repetir en bucle.</string>
+    <string name="try_again">Reintentar</string>
     <string name="try_sample">Probar el ejemplo</string>
     <string name="two_fingers_scroll">Desplaza con dos dedos</string>
     <string name="undo">Deshacer</string>
@@ -210,6 +236,11 @@
     <string name="your_scores">Tus partituras</string>
     <string name="zoom_in">Acercar</string>
     <string name="zoom_out">Alejar</string>
+    <plurals name="bars">
+        <item quantity="one">%d compás</item>
+        <item quantity="many">%d compases</item>
+        <item quantity="other">%d compases</item>
+    </plurals>
     <plurals name="import_added">
         <item quantity="one">Se añadió %d partitura de la carpeta.</item>
         <item quantity="many">Se añadieron %d partituras de la carpeta.</item>
@@ -219,6 +250,11 @@
         <item quantity="one">Importando… %d partitura encontrada</item>
         <item quantity="many">Importando… %d partituras encontradas</item>
         <item quantity="other">Importando… %d partituras encontradas</item>
+    </plurals>
+    <plurals name="results">
+        <item quantity="one">%d partitura</item>
+        <item quantity="many">%d partituras</item>
+        <item quantity="other">%d partituras</item>
     </plurals>
     <plurals name="score_count">
         <item quantity="one">%d partitura</item>

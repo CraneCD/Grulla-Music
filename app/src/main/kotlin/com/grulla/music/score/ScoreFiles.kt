@@ -4,6 +4,7 @@ import android.content.Context
 import android.net.Uri
 import android.provider.OpenableColumns
 import androidx.core.net.toUri
+import com.grulla.music.catalog.CatalogRepository
 import com.grulla.music.core.score.LoadedScore
 import com.grulla.music.core.score.MusicXmlLoader
 import com.grulla.music.core.score.ScoreLoadException
@@ -23,9 +24,19 @@ class ScoreFiles(private val context: Context) {
         "application/octet-stream",
     )
 
-    /** Opens a library URI: content://..., or asset:<path> for a bundled sample. Blocking. */
-    fun open(uri: String): Pair<LoadedScore, String> =
-        if (uri.startsWith(ASSET_SCHEME)) openAsset(uri.removePrefix(ASSET_SCHEME)) else open(uri.toUri())
+    /** Opens a library URI: content://..., asset:<path> for a bundled sample, download:<id> for a catalogue score. Blocking. */
+    fun open(uri: String): Pair<LoadedScore, String> = when {
+        uri.startsWith(ASSET_SCHEME) -> openAsset(uri.removePrefix(ASSET_SCHEME))
+        uri.startsWith(CatalogRepository.DOWNLOAD_SCHEME) -> openDownloaded(uri.removePrefix(CatalogRepository.DOWNLOAD_SCHEME))
+        else -> open(uri.toUri())
+    }
+
+    /** A score downloaded from the online catalogue. Blocking. */
+    private fun openDownloaded(id: String): Pair<LoadedScore, String> {
+        val file = CatalogRepository.downloadedFile(context, id)
+        if (!file.isFile) throw ScoreLoadException("The downloaded score is missing.")
+        return MusicXmlLoader.load(file.readBytes()) to id
+    }
 
     /** Blocking; call off the main thread. Returns the score and a fallback title (the file name). */
     fun open(uri: Uri): Pair<LoadedScore, String> {

@@ -85,6 +85,7 @@ interface LibraryActions {
     fun open(entry: LibraryEntry)
     fun openFile()
     fun importFolder()
+    fun findScores()
     fun openSample()
     fun openSettings()
     fun remove(entry: LibraryEntry)
@@ -105,6 +106,7 @@ fun LibraryScreen(
     onOpenSample: () -> Unit,
     onOpenSettings: () -> Unit,
     onRemoved: (LibraryEntry) -> Unit,
+    onFindScores: () -> Unit,
 ) {
     val library by repository.library.collectAsStateWithLifecycle()
     val importing by repository.importing.collectAsStateWithLifecycle()
@@ -130,6 +132,7 @@ fun LibraryScreen(
             override fun open(entry: LibraryEntry) = onOpenEntry(entry)
             override fun openFile() = onOpenFile()
             override fun importFolder() = pickFolder.launch(null)
+            override fun findScores() = onFindScores()
             override fun openSample() = onOpenSample()
             override fun openSettings() = onOpenSettings()
             override fun remove(entry: LibraryEntry) {
@@ -201,6 +204,7 @@ fun LibraryContent(
                         .weight(1f)
                         .semantics { heading() },
                 )
+                IconButton(onClick = actions::findScores) { Icon(AppIcons.Explore, contentDescription = stringResource(R.string.find_scores_online)) }
                 IconButton(onClick = actions::openSettings) { Icon(AppIcons.Settings, contentDescription = stringResource(R.string.settings)) }
             }
         },
@@ -282,6 +286,9 @@ fun LibraryContent(
             }
             item {
                 FlowRow(horizontalArrangement = Arrangement.spacedBy(4.dp), modifier = Modifier.padding(top = 4.dp)) {
+                    TextButton(onClick = actions::findScores) {
+                        Text(stringResource(R.string.find_scores_online), color = c.indigo, style = MaterialTheme.typography.labelLarge)
+                    }
                     TextButton(onClick = actions::importFolder, enabled = importing == null) {
                         Text(stringResource(R.string.import_folder), color = c.indigo, style = MaterialTheme.typography.labelLarge)
                     }
@@ -600,6 +607,8 @@ private fun EmptyLibrary(modifier: Modifier, actions: LibraryActions, importing:
             modifier = Modifier.padding(top = 8.dp, bottom = 24.dp),
         )
         InkButton(stringResource(R.string.open_score), onClick = actions::openFile, icon = AppIcons.FolderOpen)
+        Spacer(Modifier.height(10.dp))
+        GhostButton(stringResource(R.string.find_scores_online), onClick = actions::findScores, icon = AppIcons.Explore)
         Spacer(Modifier.height(10.dp))
         GhostButton(
             if (importing != null) pluralStringResource(R.plurals.importing_found, importing, importing) else stringResource(R.string.import_folder),

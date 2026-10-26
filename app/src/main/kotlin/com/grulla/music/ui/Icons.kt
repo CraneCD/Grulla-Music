@@ -48,6 +48,8 @@ object AppIcons {
     val Setlist = stroke("Setlist", "M8 6h12M8 12h12M8 18h12M4 6v0.5M4 12v0.5M4 18v0.5")
     val Add = stroke("Add", "M12 5v14M5 12h14")
     val Minus = stroke("Minus", "M5 12h14")
+    val Download = stroke("Download", "M12 4v11M7 10l5 5 5-5M5 20h14")
+    val Explore = stroke("Explore", "M12 3a9 9 0 1 1 0 18a9 9 0 1 1 0-18zM3 12h18M12 3c3.5 3 3.5 15 0 18M12 3c-3.5 3-3.5 15 0 18")
     val Folder = stroke("Folder", "M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2zM12 10v6M9 13h6")
 
     val Play = fill("Play", "M8 5v14l11-7z")

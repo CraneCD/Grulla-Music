@@ -26,6 +26,8 @@
     <string name="bar_of">bar %1$d of %2$d</string>
     <string name="breath">Breath</string>
     <string name="cancel">Cancel</string>
+    <string name="catalog_credits">Scores from OpenScore Lieder and String Quartets (CC0) and PDMX (public domain scores from MuseScore.com; Long et al., 2024). Only music by composers who died by 1930, or traditional music.</string>
+    <string name="catalog_offline">The score catalogue could not be downloaded. Check the connection.</string>
     <string name="choose_soundfont">Choose SoundFont…</string>
     <string name="clear_loop">Clear loop</string>
     <string name="clear_search">Clear search</string>
@@ -39,6 +41,8 @@
     <string name="delete_setlist">Delete setlist</string>
     <string name="done">Done</string>
     <string name="down_semitone">Down a semitone</string>
+    <string name="download">Download</string>
+    <string name="download_failed">The score could not be downloaded.</string>
     <string name="duration_hours">%1$d h %2$s min</string>
     <string name="duration_minutes">%1$d min</string>
     <string name="early_turn">Turn pages on the last bar</string>
@@ -61,6 +65,9 @@
     <string name="error_score_view">The score could not be shown (%1$s).</string>
     <string name="error_too_large">The file is too large to open.</string>
     <string name="error_unreadable_detail">The file could not be read (%1$s).</string>
+    <string name="find_hint">Title, composer or instrument</string>
+    <string name="find_scores">Find scores</string>
+    <string name="find_scores_online">Find scores online</string>
     <string name="fingering">Fingering</string>
     <string name="follow_me">Follow me</string>
     <string name="follow_me_button">Practise with the microphone</string>
@@ -68,10 +75,23 @@
     <string name="how_strict">How strict</string>
     <string name="import_folder">Import a folder</string>
     <string name="import_none">No MusicXML scores in that folder.</string>
+    <string name="in_library">In your library</string>
     <string name="in_total">In total</string>
     <string name="instrument">Instrument</string>
     <string name="instrument_as_written">Instrument as written</string>
+    <string name="instrument_cello">Cello</string>
+    <string name="instrument_clarinet">Clarinet</string>
     <string name="instrument_description">Instrument for %1$s: %2$s, change</string>
+    <string name="instrument_flute">Flute</string>
+    <string name="instrument_guitar">Guitar</string>
+    <string name="instrument_harp">Harp</string>
+    <string name="instrument_organ">Organ</string>
+    <string name="instrument_piano">Piano</string>
+    <string name="instrument_recorder">Recorder</string>
+    <string name="instrument_trumpet">Trumpet</string>
+    <string name="instrument_viola">Viola</string>
+    <string name="instrument_violin">Violin</string>
+    <string name="instrument_voice">Voice</string>
     <string name="interval_down">%1$s down</string>
     <string name="interval_up">%1$s up</string>
     <string name="keep_notes_on_screen">Keep notes on screen</string>
@@ -80,6 +100,9 @@
     <string name="language_system_detail">Spanish or English, as the phone is set.</string>
     <string name="last_7_days">Last 7 days</string>
     <string name="less">Less: %1$s</string>
+    <string name="level_easy">Easy</string>
+    <string name="level_hard">Hard</string>
+    <string name="level_medium">Medium</string>
     <string name="library">Library</string>
     <string name="license_app">Grulla Music is open source under the MIT License.</string>
     <string name="listen_hearing">Hearing %1$s</string>
@@ -126,7 +149,8 @@
     <string name="practice">Practice</string>
     <string name="practice_log">Practice log</string>
     <string name="previous_page">Previous page</string>
-    <string name="privacy_note">Private by design: no account, no ads, no tracking. The microphone is used only during Follow me and Wait for me, and the sound is analysed on the phone and never recorded or sent anywhere.</string>
+    <string name="privacy_note">Private by design: no account, no ads, no tracking. The internet is used only to download the score catalogue and the scores you choose. The microphone is used only during Follow me and Wait for me, and the sound is analysed on the phone and never recorded or sent anywhere.</string>
+    <string name="public_domain">Public domain</string>
     <string name="reading">Reading</string>
     <string name="recent">Recent</string>
     <string name="remove_from_library">Remove from library</string>
@@ -135,6 +159,7 @@
     <string name="rename_setlist">Rename setlist</string>
     <string name="reset">Reset</string>
     <string name="reset_to_100" formatted="false">Reset to 100%</string>
+    <string name="results_many">Many matches. Showing %1$d; add a word to narrow them down.</string>
     <string name="save">Save</string>
     <string name="search_hint">Search titles and composers</string>
     <string name="setlist">Setlist</string>
@@ -192,6 +217,7 @@
     <string name="transpose_explained">Moves the notes and the sound up or down, for example to sing in another key.</string>
     <string name="trouble_bars">Trouble bars</string>
     <string name="trouble_bars_empty">Play with Follow me and the bars with the most wrong notes show up here, ready to loop.</string>
+    <string name="try_again">Try again</string>
     <string name="try_sample">Try the sample</string>
     <string name="two_fingers_scroll">Two fingers scroll</string>
     <string name="undo">Undo</string>
@@ -211,6 +237,10 @@
     <string name="your_scores">Your scores</string>
     <string name="zoom_in">Zoom in</string>
     <string name="zoom_out">Zoom out</string>
+    <plurals name="bars">
+        <item quantity="one">%d bar</item>
+        <item quantity="other">%d bars</item>
+    </plurals>
     <plurals name="import_added">
         <item quantity="one">Added %d score from the folder.</item>
         <item quantity="other">Added %d scores from the folder.</item>
@@ -218,6 +248,10 @@
     <plurals name="importing_found">
         <item quantity="one">Importing… %d score found</item>
         <item quantity="other">Importing… %d scores found</item>
+    </plurals>
+    <plurals name="results">
+        <item quantity="one">%d score</item>
+        <item quantity="other">%d scores</item>
     </plurals>
     <plurals name="score_count">
         <item quantity="one">%d score</item>

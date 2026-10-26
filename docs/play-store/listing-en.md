@@ -28,13 +28,17 @@ PRACTISE
 • Wait for me: the other parts play along and wait for you at each of your notes
 • Practice log with time practised and the bars that need work
 
+FIND
+• Thousands of free scores to download: art songs and string quartets from OpenScore, and public domain pieces, folk tunes and studies from PDMX
+• Search by title, composer or instrument, and filter by difficulty
+
 ORGANISE
 • Library with search, sorting and setlists for lessons and concerts
 • Import a whole folder of scores at once
 • Pencil marks, fingerings and breath marks that stay with the notes
 
 PRIVATE
-No account, no ads, no tracking, no internet. The microphone is only used during Follow me and Wait for me, and nothing is recorded.
+No account, no ads, no tracking. The internet is only used to download the free score catalogue and the scores you pick. The microphone is only used during Follow me and Wait for me, and nothing is recorded.
 
 Built on open-source libraries: Verovio, FluidSynth and the FluidR3 Mono SoundFont.
 
@@ -45,7 +49,7 @@ Built on open-source libraries: Verovio, FluidSynth and the FluidR3 Mono SoundFo
 ## Data safety form
 
 - Does the app collect or share user data? **No.**
-- Data encrypted in transit: not applicable (no data is transmitted).
+- Data encrypted in transit: yes (HTTPS); only score files are downloaded, nothing is uploaded.
 - Users can request data deletion: data stays on the device; clearing storage or uninstalling deletes it.
 - Microphone: used on-device only, not collected (Play's definition: data processed only on the device is not "collected").
 

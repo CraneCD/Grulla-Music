@@ -26,6 +26,7 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.window.layout.FoldingFeature
 import androidx.window.layout.WindowInfoTracker
 import androidx.window.layout.WindowMetricsCalculator
+import com.grulla.music.ui.FindScoresScreen
 import com.grulla.music.ui.GrullaTheme
 import com.grulla.music.ui.LibraryScreen
 import com.grulla.music.ui.ScoreScreen
@@ -35,7 +36,7 @@ import com.grulla.music.ui.isNightTheme
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.map
 
-private enum class Screen { LIBRARY, SCORE, SETTINGS }
+private enum class Screen { LIBRARY, SCORE, SETTINGS, FIND }
 
 class MainActivity : ComponentActivity() {
     private val viewModel: ScoreViewModel by viewModels()
@@ -98,6 +99,7 @@ class MainActivity : ComponentActivity() {
                             screen = Screen.SETTINGS
                         },
                         onRemoved = { app.practice.remove(it.id) },
+                        onFindScores = { screen = Screen.FIND },
                     )
                     Screen.SCORE -> {
                         BackHandler(onBack = toLibrary)
@@ -111,6 +113,17 @@ class MainActivity : ComponentActivity() {
                                 screen = Screen.SETTINGS
                             },
                             tabletop = tabletop,
+                        )
+                    }
+                    Screen.FIND -> {
+                        BackHandler { screen = Screen.LIBRARY }
+                        FindScoresScreen(
+                            repository = app.catalog,
+                            onOpen = { uri ->
+                                viewModel.openDownloaded(uri)
+                                screen = Screen.SCORE
+                            },
+                            onBack = { screen = Screen.LIBRARY },
                         )
                     }
                     Screen.SETTINGS -> {

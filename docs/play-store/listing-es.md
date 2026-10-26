@@ -28,13 +28,17 @@ PRACTICA
 • Espérame: las demás partes tocan contigo y te esperan en cada una de tus notas
 • Registro de práctica con el tiempo practicado y los compases que necesitan trabajo
 
+BUSCA
+• Miles de partituras gratuitas para descargar: canciones y cuartetos de cuerda de OpenScore, y obras de dominio público, música tradicional y estudios de PDMX
+• Busca por título, compositor o instrumento, y filtra por dificultad
+
 ORGANIZA
 • Biblioteca con búsqueda, orden y repertorios para clases y conciertos
 • Importa una carpeta entera de partituras de una vez
 • Marcas de lápiz, digitaciones y respiraciones que se quedan junto a las notas
 
 PRIVADA
-Sin cuenta, sin anuncios, sin rastreo y sin internet. El micrófono solo se usa durante Sígueme y Espérame, y no se graba nada.
+Sin cuenta, sin anuncios y sin rastreo. Internet solo se usa para descargar el catálogo de partituras gratuitas y las que elijas. El micrófono solo se usa durante Sígueme y Espérame, y no se graba nada.
 
 Hecha con bibliotecas de código abierto: Verovio, FluidSynth y el SoundFont FluidR3 Mono.
 

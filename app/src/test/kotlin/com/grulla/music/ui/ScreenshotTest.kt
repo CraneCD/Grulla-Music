@@ -20,6 +20,12 @@ import com.grulla.music.ScoreUiState
 import com.grulla.music.TrainerState
 import com.grulla.music.audio.AudioState
 import com.grulla.music.audio.EngineChoice
+import com.grulla.music.catalog.CatalogState
+import com.grulla.music.catalog.DownloadState
+import com.grulla.music.core.catalog.Catalog
+import com.grulla.music.core.catalog.CatalogFilter
+import com.grulla.music.core.catalog.CatalogScore
+import com.grulla.music.core.catalog.CatalogSource
 import com.grulla.music.core.library.Library
 import com.grulla.music.core.library.LibraryEntry
 import com.grulla.music.core.library.ScoreSettings
@@ -303,6 +309,53 @@ class ScreenshotTest {
         ScoreScreenContent(ui, playing.copy(transport = Transport.PAUSED), BarInfo(6, 16), NoActions, {}, {}, { _, _ -> }) {
             ScoreImage("score-night.png", it)
         }
+    }
+
+    private val catalog = Catalog(
+        sources = mapOf(
+            "lieder" to CatalogSource("OpenScore Lieder", "https://github.com/OpenScore/Lieder", "CC0 1.0"),
+            "pdmx" to CatalogSource("PDMX", "https://zenodo.org/records/15571083", "Public domain"),
+        ),
+        scores = listOf(
+            CatalogScore("a", "Für Elise", "Ludwig van Beethoven", listOf("Piano"), 1, 103, difficulty = 2, rating = 4.8, src = "pdmx", lic = "PD", file = "a.mxl"),
+            CatalogScore("b", "Ständchen", "Franz Schubert", listOf("Voice", "Piano"), 2, 60, src = "lieder", lic = "CC0", file = "b.mxl", set = "Schwanengesang"),
+            CatalogScore("c", "Gnossienne No. 1", "Erik Satie", listOf("Piano"), 1, 40, difficulty = 2, rating = 4.6, src = "pdmx", lic = "CC0", file = "c.mxl"),
+            CatalogScore("d", "Greensleeves", "Traditional", listOf("Guitar"), 1, 32, difficulty = 1, rating = 4.4, src = "pdmx", lic = "PD", file = "d.mxl"),
+            CatalogScore("e", "String Quartet No. 1", "Bedřich Smetana", listOf("Violin", "Viola", "Cello"), 4, 220, difficulty = 3, src = "pdmx", lic = "CC0", file = "e.mxl"),
+        ),
+    )
+
+    @Test
+    fun findScoresDay() = capture("find-scores-day", ThemeMode.LIGHT) {
+        FindScoresContent(
+            state = CatalogState.Ready(catalog),
+            query = "",
+            filter = CatalogFilter(instrument = "Piano"),
+            downloads = mapOf("c" to DownloadState.DOWNLOADING),
+            isDownloaded = { it == "a" },
+            onQuery = {},
+            onFilter = {},
+            onChoose = {},
+            onRetry = {},
+            onBack = {},
+        )
+    }
+
+    @Test
+    @Config(qualifiers = "+es")
+    fun findScoresSpanishNight() = capture("find-scores-es-night", ThemeMode.DARK) {
+        FindScoresContent(
+            state = CatalogState.Ready(catalog),
+            query = "schubert",
+            filter = CatalogFilter(),
+            downloads = emptyMap(),
+            isDownloaded = { false },
+            onQuery = {},
+            onFilter = {},
+            onChoose = {},
+            onRetry = {},
+            onBack = {},
+        )
     }
 
     @Test

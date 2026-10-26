@@ -204,6 +204,9 @@ class ScoreViewModel(application: Application) :
 
     fun openSample() = open(ScoreFiles.SAMPLE_URI)
 
+    /** A score just downloaded from the online catalogue (a download: URI). */
+    fun openDownloaded(uri: String) = open(uri)
+
     /**
      * Opens a file chosen with the system picker (or sent by another app). Picker
      * results can keep their read permission, so the score stays in the library.

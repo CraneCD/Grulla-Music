@@ -2,6 +2,7 @@ package com.grulla.music
 
 import android.app.Application
 import com.grulla.music.audio.AudioEngine
+import com.grulla.music.catalog.CatalogRepository
 import com.grulla.music.library.LibraryRepository
 import com.grulla.music.library.PracticeRepository
 import com.grulla.music.settings.PlayerSettings
@@ -17,6 +18,8 @@ class GrullaApp : Application() {
     val library: LibraryRepository by lazy { LibraryRepository(this, appScope) }
 
     val practice: PracticeRepository by lazy { PracticeRepository(this, appScope) }
+
+    val catalog: CatalogRepository by lazy { CatalogRepository(this, appScope) }
 
     val appearance: AppearanceSettings by lazy { AppearanceSettings(this) }
 

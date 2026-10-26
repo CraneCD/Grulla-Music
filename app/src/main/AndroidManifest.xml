@@ -1,7 +1,9 @@
 <?xml version="1.0" encoding="utf-8"?>
 <manifest xmlns:android="http://schemas.android.com/apk/res/android">
 
-    <!-- No INTERNET permission: the WebView only loads bundled assets through WebViewAssetLoader. -->
+    <!-- "Find scores": downloads the catalogue index and the scores you choose (HTTPS, nothing is sent
+         about you). The WebView still only loads bundled assets through WebViewAssetLoader. -->
+    <uses-permission android:name="android.permission.INTERNET" />
 
     <!-- "Follow me": listens to the instrument to know when to move on. Asked for when first used. -->
     <uses-permission android:name="android.permission.RECORD_AUDIO" />

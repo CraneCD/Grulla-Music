@@ -4,6 +4,7 @@ import android.content.Context
 import android.content.Intent
 import android.net.Uri
 import androidx.core.net.toUri
+import com.grulla.music.catalog.CatalogRepository
 import com.grulla.music.core.library.ImportedScore
 import com.grulla.music.core.library.Library
 import com.grulla.music.core.library.LibraryEntry
@@ -136,6 +137,10 @@ class LibraryRepository(context: Context, private val scope: CoroutineScope) {
             withContext(Dispatchers.IO) {
                 thumbnailFile(entry)?.delete()
                 File(annotationDir, "${entry.id}.json").delete()
+                // A score downloaded from the catalogue goes with its entry (it can be downloaded again).
+                if (entry.uri.startsWith(CatalogRepository.DOWNLOAD_SCHEME)) {
+                    runCatching { CatalogRepository.downloadedFile(app, entry.uri.removePrefix(CatalogRepository.DOWNLOAD_SCHEME)).delete() }
+                }
             }
             if (entry.uri.startsWith("content:")) {
                 runCatching {
