@@ -18,12 +18,12 @@ class MixerTest {
         val channels = Mixer.channels(parts, midi)
         assertEquals(
             listOf(
-                MixerChannel(1, "V", "Voice"),
-                MixerChannel(2, "P", "Piano – upper staff"),
-                MixerChannel(3, "P", "Piano – lower staff"),
-                MixerChannel(4, "B", "Bass"),
+                MixerChannel(1, "V", "Voice", partName = "Voice", staff = 1, staves = 1),
+                MixerChannel(2, "P", "Piano – upper staff", partName = "Piano", staff = 1, staves = 2),
+                MixerChannel(3, "P", "Piano – lower staff", partName = "Piano", staff = 2, staves = 2),
+                MixerChannel(4, "B", "Bass", partName = "Bass", staff = 1, staves = 1),
             ),
-            channels,
+            channels.map { it.copy(program = null) },
         )
     }
 

@@ -66,7 +66,7 @@ These are fetched by Gradle; see `gradle/libs.versions.toml` for the versions.
 
 | Dependency | License |
 |---|---|
-| AndroidX (Compose, Activity, Lifecycle, Core, WebKit) | Apache-2.0 |
+| AndroidX (Compose, Activity, Lifecycle, Core, WebKit, Window) | Apache-2.0 |
 | Kotlin standard library, kotlinx.coroutines, kotlinx.serialization | Apache-2.0 |
 | JUnit 4 (tests only) | EPL-1.0 |
 
@@ -75,5 +75,6 @@ These are fetched by Gradle; see `gradle/libs.versions.toml` for the versions.
 - `app/src/main/assets/samples/ode-to-joy.musicxml`: the melody (Beethoven) is in the
   public domain. The piano setting was written for this project and is dedicated to the
   public domain under CC0 1.0.
-- `core/src/test/resources/fixtures/piano-melody-22050.wav` (tests only): the same melody
-  rendered with FluidSynth and the FluidR3 Mono SoundFont (MIT).
+- `core/src/test/resources/fixtures/piano-melody-22050.wav` and `piano-chords-22050.wav`
+  (tests only): the same melody, and a sequence of chords written for the tests, rendered with
+  FluidSynth and the FluidR3 Mono SoundFont (MIT).

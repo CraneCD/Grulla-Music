@@ -3,6 +3,7 @@ package com.grulla.music.ui
 import android.Manifest
 import android.content.pm.PackageManager
 import android.content.res.Configuration
+import android.content.res.Resources
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.BorderStroke
@@ -21,19 +22,19 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
-import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.selection.toggleable
-import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.DropdownMenu
@@ -67,9 +68,14 @@ import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalResources
+import androidx.compose.ui.res.pluralStringResource
+import androidx.compose.ui.res.stringArrayResource
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.semantics.LiveRegionMode
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.heading
 import androidx.compose.ui.semantics.liveRegion
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.style.TextAlign
@@ -81,6 +87,7 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.grulla.music.AnnotateTool
 import com.grulla.music.ListenMode
 import com.grulla.music.ListeningState
+import com.grulla.music.R
 import com.grulla.music.ScoreUiState
 import com.grulla.music.ScoreViewModel
 import com.grulla.music.core.midi.GeneralMidi
@@ -150,11 +157,12 @@ fun ScoreScreen(
     val practice by viewModel.practice.collectAsStateWithLifecycle()
     val snackbar = remember { SnackbarHostState() }
     val context = LocalContext.current
+    val resources = LocalResources.current
     var pendingListen by remember { mutableStateOf<Pair<ListenMode, Set<Int>>?>(null) }
     val micPermission = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) { granted ->
         val (mode, tracks) = pendingListen ?: return@rememberLauncherForActivityResult
         pendingListen = null
-        if (granted) viewModel.startListening(mode, tracks) else viewModel.showNotice("Follow me needs permission to use the microphone.")
+        if (granted) viewModel.startListening(mode, tracks) else viewModel.showNotice(resources.getString(R.string.mic_permission_needed))
     }
     val startListening = { mode: ListenMode, tracks: Set<Int> ->
         if (ContextCompat.checkSelfPermission(context, Manifest.permission.RECORD_AUDIO) == PackageManager.PERMISSION_GRANTED) {
@@ -319,19 +327,19 @@ private fun ScoreTopBar(
             .fillMaxWidth()
             .background(c.paper)
             .statusBarsPadding()
-            .height(64.dp)
+            .heightIn(min = 64.dp)
             .padding(horizontal = 4.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
-        IconButton(onClick = onBack) { Icon(AppIcons.ArrowBack, contentDescription = "Library") }
+        IconButton(onClick = onBack) { Icon(AppIcons.ArrowBack, contentDescription = stringResource(R.string.library)) }
         Column(Modifier.weight(1f)) {
             Text(ui.title, style = MaterialTheme.typography.titleLarge, maxLines = 1, overflow = TextOverflow.Ellipsis)
             val subtitle = listOfNotNull(
                 ui.composer,
                 when {
-                    ui.listening?.mode == ListenMode.WAIT -> "wait for me"
-                    ui.listening != null -> "follow me"
-                    bar != null && bar.total > 0 -> "bar ${bar.bar} of ${bar.total}"
+                    ui.listening?.mode == ListenMode.WAIT -> stringResource(R.string.status_wait_for_me)
+                    ui.listening != null -> stringResource(R.string.status_follow_me)
+                    bar != null && bar.total > 0 -> stringResource(R.string.bar_of, bar.bar, bar.total)
                     else -> null
                 },
             ).joinToString(" · ")
@@ -340,25 +348,25 @@ private fun ScoreTopBar(
             }
         }
         if (ui.mixer.size > 1) {
-            IconButton(onClick = { onSheet(ScoreSheet.PARTS) }) { Icon(AppIcons.Parts, contentDescription = "Parts") }
+            IconButton(onClick = { onSheet(ScoreSheet.PARTS) }) { Icon(AppIcons.Parts, contentDescription = stringResource(R.string.parts)) }
         }
         Box {
-            IconButton(onClick = { menu = true }) { Icon(AppIcons.More, contentDescription = "View options") }
+            IconButton(onClick = { menu = true }) { Icon(AppIcons.More, contentDescription = stringResource(R.string.view_options)) }
             DropdownMenu(expanded = menu, onDismissRequest = { menu = false }, containerColor = c.sheet) {
                 DropdownMenuItem(
-                    text = { Text("Zoom in") },
+                    text = { Text(stringResource(R.string.zoom_in)) },
                     leadingIcon = { Icon(AppIcons.ZoomIn, contentDescription = null) },
                     trailingIcon = { Text("${ui.scale}%", style = MaterialTheme.typography.bodySmall, color = c.graphite) },
                     onClick = actions::zoomIn,
                 )
                 DropdownMenuItem(
-                    text = { Text("Zoom out") },
+                    text = { Text(stringResource(R.string.zoom_out)) },
                     leadingIcon = { Icon(AppIcons.ZoomOut, contentDescription = null) },
                     onClick = actions::zoomOut,
                 )
                 HorizontalDivider(color = c.line)
                 DropdownMenuItem(
-                    text = { Text(if (ui.layoutMode == LayoutMode.PAGE) "Continuous scroll" else "Page view") },
+                    text = { Text(stringResource(if (ui.layoutMode == LayoutMode.PAGE) R.string.continuous_scroll else R.string.page_view)) },
                     leadingIcon = {
                         Icon(if (ui.layoutMode == LayoutMode.PAGE) AppIcons.ViewScroll else AppIcons.ViewPages, contentDescription = null)
                     },
@@ -368,13 +376,13 @@ private fun ScoreTopBar(
                     },
                 )
                 DropdownMenuItem(
-                    text = { Text("Keep notes on screen") },
+                    text = { Text(stringResource(R.string.keep_notes_on_screen)) },
                     leadingIcon = { Icon(AppIcons.Check, contentDescription = null, tint = if (ui.follow) c.indigo else Color.Transparent) },
                     onClick = { actions.setFollow(!ui.follow) },
                 )
                 HorizontalDivider(color = c.line)
                 DropdownMenuItem(
-                    text = { Text("Transpose") },
+                    text = { Text(stringResource(R.string.transpose)) },
                     leadingIcon = { Icon(AppIcons.Transpose, contentDescription = null) },
                     trailingIcon = {
                         if (ui.transpose != 0) Text("%+d".format(ui.transpose), style = MaterialTheme.typography.bodySmall, color = c.graphite)
@@ -385,7 +393,7 @@ private fun ScoreTopBar(
                     },
                 )
                 DropdownMenuItem(
-                    text = { Text("Annotate") },
+                    text = { Text(stringResource(R.string.annotate)) },
                     leadingIcon = { Icon(AppIcons.Pen, contentDescription = null) },
                     onClick = {
                         menu = false
@@ -393,7 +401,7 @@ private fun ScoreTopBar(
                     },
                 )
                 DropdownMenuItem(
-                    text = { Text("Practice log") },
+                    text = { Text(stringResource(R.string.practice_log)) },
                     leadingIcon = { Icon(AppIcons.Practice, contentDescription = null) },
                     onClick = {
                         menu = false
@@ -401,7 +409,7 @@ private fun ScoreTopBar(
                     },
                 )
                 DropdownMenuItem(
-                    text = { Text("Settings") },
+                    text = { Text(stringResource(R.string.settings)) },
                     leadingIcon = { Icon(AppIcons.Settings, contentDescription = null) },
                     onClick = {
                         menu = false
@@ -420,14 +428,14 @@ private fun PagePill(ui: ScoreUiState, actions: ScoreActions, modifier: Modifier
         Row(verticalAlignment = Alignment.CenterVertically) {
             val lastShown = if (ui.spread) minOf(ui.page + 1, ui.pageCount) else ui.page
             IconButton(onClick = { actions.turnPage(-1) }, enabled = ui.page > 1) {
-                Icon(AppIcons.ChevronLeft, contentDescription = "Previous page")
+                Icon(AppIcons.ChevronLeft, contentDescription = stringResource(R.string.previous_page))
             }
             Text(
                 if (lastShown > ui.page) "${ui.page}–$lastShown / ${ui.pageCount}" else "${ui.page} / ${ui.pageCount}",
                 style = MaterialTheme.typography.labelMedium.copy(fontFeatureSettings = "tnum"),
             )
             IconButton(onClick = { actions.turnPage(1) }, enabled = lastShown < ui.pageCount) {
-                Icon(AppIcons.ChevronRight, contentDescription = "Next page")
+                Icon(AppIcons.ChevronRight, contentDescription = stringResource(R.string.next_page))
             }
         }
     }
@@ -447,7 +455,7 @@ private fun TransportDock(
         PositionBar(playback, actions)
         Box(Modifier.fillMaxWidth().height(64.dp)) {
             Row(Modifier.align(Alignment.CenterStart), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                RoundOutlineButton(AppIcons.Stop, "Stop", onClick = actions::stop, enabled = playback.hasScore)
+                RoundOutlineButton(AppIcons.Stop, stringResource(R.string.stop), onClick = actions::stop, enabled = playback.hasScore)
                 FollowMeButton(onListen, enabled = playback.hasScore)
             }
             PlayButton(playback, actions::togglePlay, Modifier.align(Alignment.Center))
@@ -482,6 +490,7 @@ private fun PositionBar(playback: PlaybackState, actions: ScoreActions) {
 @Composable
 private fun TempoPill(tempoPercent: Int, onClick: () -> Unit, modifier: Modifier = Modifier, training: Boolean = false) {
     val c = Grulla.colors
+    val description = stringResource(if (training) R.string.tempo_description_training else R.string.tempo_description, tempoPercent)
     Surface(
         onClick = onClick,
         shape = CircleShape,
@@ -489,9 +498,9 @@ private fun TempoPill(tempoPercent: Int, onClick: () -> Unit, modifier: Modifier
         contentColor = if (training) c.onIndigoTint else c.ink,
         border = BorderStroke(1.dp, if (training) c.indigo else c.line),
         modifier = modifier
-            .height(48.dp)
+            .heightIn(min = 48.dp)
             .semantics {
-                contentDescription = "Tempo $tempoPercent percent" + (if (training) ", speed trainer on" else "") + ", change"
+                contentDescription = description
             },
     ) {
         Row(Modifier.padding(horizontal = 14.dp), verticalAlignment = Alignment.CenterVertically) {
@@ -510,30 +519,31 @@ private fun PracticeToggles(ui: ScoreUiState, playback: PlaybackState, actions: 
         horizontalArrangement = Arrangement.spacedBy(8.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
-        GrullaChip("Count-in", playback.countInEnabled, onClick = { actions.setCountIn(!playback.countInEnabled) })
-        GrullaChip("Metronome", playback.metronomeEnabled, onClick = { actions.setMetronome(!playback.metronomeEnabled) })
+        GrullaChip(stringResource(R.string.count_in), playback.countInEnabled, onClick = { actions.setCountIn(!playback.countInEnabled) })
+        GrullaChip(stringResource(R.string.metronome), playback.metronomeEnabled, onClick = { actions.setMetronome(!playback.metronomeEnabled) })
         val loop = playback.loop
         if (loop == null) {
-            GrullaChip("Loop", selected = false, onClick = actions::explainLoop)
+            GrullaChip(stringResource(R.string.loop), selected = false, onClick = actions::explainLoop)
         } else {
+            val clearLoop = stringResource(R.string.clear_loop)
             GrullaChip(
-                label = ui.loopLabel ?: "Loop",
+                label = ui.loopLabel ?: stringResource(R.string.loop),
                 selected = playback.loopEnabled,
                 onClick = { actions.setLoopEnabled(!playback.loopEnabled) },
                 trailing = {
                     Icon(
                         AppIcons.Close,
-                        contentDescription = "Clear loop",
+                        contentDescription = clearLoop,
                         modifier = Modifier
                             .size(28.dp)
                             .clip(CircleShape)
-                            .clickable(onClickLabel = "Clear loop", onClick = actions::clearLoop)
+                            .clickable(onClickLabel = clearLoop, onClick = actions::clearLoop)
                             .padding(6.dp),
                     )
                 },
             )
         }
-        GrullaChip("Silent", ui.silent, onClick = { actions.setSilent(!ui.silent) })
+        GrullaChip(stringResource(R.string.silent), ui.silent, onClick = { actions.setSilent(!ui.silent) })
     }
 }
 
@@ -542,7 +552,7 @@ private fun PracticeToggles(ui: ScoreUiState, playback: PlaybackState, actions: 
 private fun CompactTransportDock(ui: ScoreUiState, playback: PlaybackState, actions: ScoreActions, onListen: () -> Unit, onTempo: () -> Unit) {
     Dock(DockLayout.Compact) {
         Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            RoundOutlineButton(AppIcons.Stop, "Stop", onClick = actions::stop, enabled = playback.hasScore)
+            RoundOutlineButton(AppIcons.Stop, stringResource(R.string.stop), onClick = actions::stop, enabled = playback.hasScore)
             FollowMeButton(onListen, enabled = playback.hasScore)
             PlayButton(playback, actions::togglePlay, Modifier, size = 56.dp)
             TempoPill(playback.tempoPercent, onTempo, training = ui.trainer != null)
@@ -556,6 +566,7 @@ private fun CompactTransportDock(ui: ScoreUiState, playback: PlaybackState, acti
 @Composable
 private fun FollowMeButton(onClick: () -> Unit, enabled: Boolean) {
     val c = Grulla.colors
+    val description = stringResource(R.string.follow_me_button)
     Surface(
         onClick = onClick,
         enabled = enabled,
@@ -565,7 +576,7 @@ private fun FollowMeButton(onClick: () -> Unit, enabled: Boolean) {
         border = BorderStroke(1.dp, c.indigo),
         modifier = Modifier
             .size(48.dp)
-            .semantics { contentDescription = "Follow me: listen to my playing" },
+            .semantics { contentDescription = description },
     ) {
         Box(contentAlignment = Alignment.Center) { Icon(AppIcons.Mic, contentDescription = null, modifier = Modifier.size(20.dp)) }
     }
@@ -576,6 +587,7 @@ private fun FollowMeButton(onClick: () -> Unit, enabled: Boolean) {
 private fun PlayButton(playback: PlaybackState, onClick: () -> Unit, modifier: Modifier, size: Dp = 64.dp) {
     val c = Grulla.colors
     val running = playback.isRunning
+    val description = stringResource(if (running) R.string.pause else R.string.play)
     Box(
         modifier
             .size(size + 12.dp)
@@ -591,7 +603,7 @@ private fun PlayButton(playback: PlaybackState, onClick: () -> Unit, modifier: M
             contentColor = c.onCrown,
             modifier = Modifier
                 .size(size)
-                .semantics { contentDescription = if (running) "Pause" else "Play" },
+                .semantics { contentDescription = description },
         ) {
             Box(contentAlignment = Alignment.Center) {
                 if (playback.transport == Transport.PREPARING) {
@@ -633,9 +645,9 @@ private fun ListeningDock(state: ListeningState, actions: ScoreActions, layout: 
             Column(Modifier.weight(1f)) {
                 Text(
                     when {
-                        state.allChordNotes -> "Play every note"
-                        state.mode == ListenMode.WAIT -> "Your turn: play"
-                        else -> "Play"
+                        state.allChordNotes -> stringResource(R.string.listen_play_every_note)
+                        state.mode == ListenMode.WAIT -> stringResource(R.string.listen_your_turn)
+                        else -> stringResource(R.string.listen_play)
                     },
                     style = MaterialTheme.typography.labelMedium,
                     color = c.onIndigoTint,
@@ -653,14 +665,21 @@ private fun ListeningDock(state: ListeningState, actions: ScoreActions, layout: 
                     overflow = TextOverflow.Ellipsis,
                 )
             }
-            Column(horizontalAlignment = Alignment.End) {
+            Column(Modifier.weight(1f, fill = false), horizontalAlignment = Alignment.End) {
                 Text(
                     "${state.step} / ${state.total}",
                     style = MaterialTheme.typography.titleMedium.copy(fontFeatureSettings = "tnum"),
                     color = c.onIndigoTint,
                 )
-                Text(state.part, style = MaterialTheme.typography.bodySmall, color = c.onIndigoTint, maxLines = 1)
-                Text("Hearing ${state.hearing}", style = MaterialTheme.typography.bodySmall, color = c.onIndigoTint)
+                Text(
+                    state.part,
+                    style = MaterialTheme.typography.bodySmall,
+                    color = c.onIndigoTint,
+                    maxLines = 2,
+                    overflow = TextOverflow.Ellipsis,
+                    textAlign = TextAlign.End,
+                )
+                Text(stringResource(R.string.listen_hearing, state.hearing), style = MaterialTheme.typography.bodySmall, color = c.onIndigoTint)
             }
         }
         val wrong = state.wrong
@@ -676,16 +695,16 @@ private fun ListeningDock(state: ListeningState, actions: ScoreActions, layout: 
                 horizontalArrangement = Arrangement.spacedBy(10.dp),
             ) {
                 Icon(AppIcons.Warning, contentDescription = null, tint = c.amber, modifier = Modifier.size(18.dp))
-                Text("Heard $wrong. Try ${state.expected}.", style = MaterialTheme.typography.labelLarge, color = c.onAmberContainer)
+                Text(stringResource(R.string.listen_wrong, wrong, state.expected), style = MaterialTheme.typography.labelLarge, color = c.onAmberContainer)
             }
         }
         Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
             IndigoButton(
-                if (state.mode == ListenMode.WAIT) "Stop Wait for me" else "Stop listening",
+                stringResource(if (state.mode == ListenMode.WAIT) R.string.stop_wait_for_me else R.string.stop_listening),
                 onClick = actions::stopListening,
                 modifier = Modifier.weight(1f),
             )
-            GhostButton("Skip note", onClick = actions::skipNote)
+            GhostButton(stringResource(R.string.skip_note), onClick = actions::skipNote)
         }
     }
 }
@@ -727,31 +746,34 @@ private fun MixerSheet(ui: ScoreUiState, actions: ScoreActions) {
             .padding(bottom = 24.dp),
         verticalArrangement = Arrangement.spacedBy(8.dp),
     ) {
-        Text("Parts", style = MaterialTheme.typography.headlineSmall)
+        Text(stringResource(R.string.parts), style = MaterialTheme.typography.headlineSmall, modifier = Modifier.semantics { heading() })
         Text(
-            "Mute a part, or solo it to hear it alone. Follow me listens to the part you choose when you start it.",
+            stringResource(R.string.parts_explained),
             style = MaterialTheme.typography.bodyMedium,
             color = c.graphite,
         )
         for (channel in ui.mixer) {
             HorizontalDivider(color = c.line, modifier = Modifier.padding(vertical = 4.dp))
+            val label = channelLabel(channel)
             Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                Text(channel.label, Modifier.weight(1f), style = MaterialTheme.typography.bodyLarge, maxLines = 2, overflow = TextOverflow.Ellipsis)
-                GrullaChip("Mute", channel.trackIndex in ui.mix.muted, onClick = { actions.toggleMute(channel.trackIndex) })
-                GrullaChip("Solo", channel.trackIndex in ui.mix.soloed, onClick = { actions.toggleSolo(channel.trackIndex) })
+                Text(label, Modifier.weight(1f), style = MaterialTheme.typography.bodyLarge, maxLines = 2, overflow = TextOverflow.Ellipsis)
+                GrullaChip(stringResource(R.string.mute), channel.trackIndex in ui.mix.muted, onClick = { actions.toggleMute(channel.trackIndex) })
+                GrullaChip(stringResource(R.string.solo), channel.trackIndex in ui.mix.soloed, onClick = { actions.toggleSolo(channel.trackIndex) })
             }
             if (!channel.percussion) {
                 val chosen = ui.mix.programs[channel.trackIndex]
                 val program = chosen ?: channel.program
+                val instrument = program?.let(GeneralMidi::name) ?: stringResource(R.string.instrument_as_written)
+                val description = stringResource(R.string.instrument_description, label, instrument)
                 Surface(
                     onClick = { choosing = channel },
                     shape = RoundedCornerShape(10.dp),
                     color = c.tag,
-                    modifier = Modifier.semantics { contentDescription = "Instrument for ${channel.label}: ${program?.let(GeneralMidi::name) ?: "as written"}, change" },
+                    modifier = Modifier.semantics { contentDescription = description },
                 ) {
                     Row(Modifier.padding(horizontal = 12.dp, vertical = 10.dp), verticalAlignment = Alignment.CenterVertically) {
                         Text(
-                            program?.let(GeneralMidi::name) ?: "Instrument as written",
+                            instrument,
                             style = MaterialTheme.typography.bodyMedium,
                             color = if (chosen != null) c.indigo else c.ink,
                         )
@@ -760,7 +782,7 @@ private fun MixerSheet(ui: ScoreUiState, actions: ScoreActions) {
                     }
                 }
             }
-            VolumeSlider(channel, ui.mix.volume(channel.trackIndex), actions)
+            VolumeSlider(channel, label, ui.mix.volume(channel.trackIndex), actions)
         }
     }
     choosing?.let { channel ->
@@ -778,11 +800,12 @@ private fun MixerSheet(ui: ScoreUiState, actions: ScoreActions) {
 
 /** Volume of one part, applied when the slider is released (it re-prepares the music). */
 @Composable
-private fun VolumeSlider(channel: MixerChannel, percent: Int, actions: ScoreActions) {
+private fun VolumeSlider(channel: MixerChannel, label: String, percent: Int, actions: ScoreActions) {
     val c = Grulla.colors
+    val description = stringResource(R.string.volume_of, label)
     var value by remember(percent) { mutableFloatStateOf(percent.toFloat()) }
     Row(verticalAlignment = Alignment.CenterVertically) {
-        Text("Volume", style = MaterialTheme.typography.bodySmall, color = c.graphite, modifier = Modifier.width(60.dp))
+        Text(stringResource(R.string.volume), style = MaterialTheme.typography.bodySmall, color = c.graphite, modifier = Modifier.width(60.dp))
         Slider(
             value = value,
             onValueChange = { value = it },
@@ -790,7 +813,7 @@ private fun VolumeSlider(channel: MixerChannel, percent: Int, actions: ScoreActi
             valueRange = 0f..MixState.MAX_VOLUME.toFloat(),
             modifier = Modifier
                 .weight(1f)
-                .semantics { contentDescription = "Volume of ${channel.label}" },
+                .semantics { contentDescription = description },
         )
         Text(
             "${(value / 10).roundToInt() * 10}%",
@@ -808,12 +831,12 @@ private fun InstrumentDialog(current: Int?, hasOwn: Boolean, onChoose: (Int?) ->
     AlertDialog(
         onDismissRequest = onDismiss,
         containerColor = c.sheet,
-        title = { Text("Instrument") },
+        title = { Text(stringResource(R.string.instrument)) },
         text = {
             LazyColumn(Modifier.heightIn(max = 420.dp)) {
                 if (hasOwn) {
                     item {
-                        DropdownMenuItem(text = { Text("As written in the score", color = c.indigo) }, onClick = { onChoose(null) })
+                        DropdownMenuItem(text = { Text(stringResource(R.string.as_written_in_score), color = c.indigo) }, onClick = { onChoose(null) })
                     }
                 }
                 for ((family, first) in GeneralMidi.families) {
@@ -821,14 +844,14 @@ private fun InstrumentDialog(current: Int?, hasOwn: Boolean, onChoose: (Int?) ->
                     items((first until first + 8).toList()) { program ->
                         DropdownMenuItem(
                             text = { Text(GeneralMidi.name(program)) },
-                            trailingIcon = { if (program == current) Icon(AppIcons.Check, contentDescription = "Current", tint = c.indigo) },
+                            trailingIcon = { if (program == current) Icon(AppIcons.Check, contentDescription = stringResource(R.string.current), tint = c.indigo) },
                             onClick = { onChoose(program) },
                         )
                     }
                 }
             }
         },
-        confirmButton = { TextButton(onClick = onDismiss) { Text("Cancel") } },
+        confirmButton = { TextButton(onClick = onDismiss) { Text(stringResource(R.string.cancel)) } },
     )
 }
 
@@ -844,26 +867,26 @@ private fun TransposeSheet(ui: ScoreUiState, actions: ScoreActions) {
             .padding(bottom = 24.dp),
         verticalArrangement = Arrangement.spacedBy(12.dp),
     ) {
-        Text("Transpose", style = MaterialTheme.typography.headlineSmall)
+        Text(stringResource(R.string.transpose), style = MaterialTheme.typography.headlineSmall, modifier = Modifier.semantics { heading() })
         Text(
-            "Moves the notes and the sound up or down, for example to sing in another key.",
+            stringResource(R.string.transpose_explained),
             style = MaterialTheme.typography.bodyMedium,
             color = c.graphite,
         )
         Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.Center) {
-            RoundOutlineButton(AppIcons.Minus, "Down a semitone", onClick = { actions.setTranspose(ui.transpose - 1) }, size = 56.dp,
+            RoundOutlineButton(AppIcons.Minus, stringResource(R.string.down_semitone), onClick = { actions.setTranspose(ui.transpose - 1) }, size = 56.dp,
                 enabled = ui.transpose > -ScoreViewModel.MAX_TRANSPOSE)
             Column(Modifier.width(150.dp), horizontalAlignment = Alignment.CenterHorizontally) {
                 Text(if (ui.transpose == 0) "0" else "%+d".format(ui.transpose), style = MaterialTheme.typography.displayMedium)
                 Text(semitoneName(ui.transpose), style = MaterialTheme.typography.bodySmall, color = c.graphite)
             }
-            RoundOutlineButton(AppIcons.Add, "Up a semitone", onClick = { actions.setTranspose(ui.transpose + 1) }, size = 56.dp,
+            RoundOutlineButton(AppIcons.Add, stringResource(R.string.up_semitone), onClick = { actions.setTranspose(ui.transpose + 1) }, size = 56.dp,
                 enabled = ui.transpose < ScoreViewModel.MAX_TRANSPOSE)
         }
         Row(horizontalArrangement = Arrangement.spacedBy(10.dp), modifier = Modifier.align(Alignment.CenterHorizontally)) {
-            GhostButton("Octave down", onClick = { actions.setTranspose(ui.transpose - 12) }, enabled = ui.transpose - 12 >= -ScoreViewModel.MAX_TRANSPOSE)
-            GhostButton("Reset", onClick = { actions.setTranspose(0) }, enabled = ui.transpose != 0)
-            GhostButton("Octave up", onClick = { actions.setTranspose(ui.transpose + 12) }, enabled = ui.transpose + 12 <= ScoreViewModel.MAX_TRANSPOSE)
+            GhostButton(stringResource(R.string.octave_down), onClick = { actions.setTranspose(ui.transpose - 12) }, enabled = ui.transpose - 12 >= -ScoreViewModel.MAX_TRANSPOSE)
+            GhostButton(stringResource(R.string.reset), onClick = { actions.setTranspose(0) }, enabled = ui.transpose != 0)
+            GhostButton(stringResource(R.string.octave_up), onClick = { actions.setTranspose(ui.transpose + 12) }, enabled = ui.transpose + 12 <= ScoreViewModel.MAX_TRANSPOSE)
         }
         HorizontalDivider(color = c.line)
         Row(
@@ -873,9 +896,9 @@ private fun TransposeSheet(ui: ScoreUiState, actions: ScoreActions) {
             verticalAlignment = Alignment.CenterVertically,
         ) {
             Column(Modifier.weight(1f)) {
-                Text("Concert pitch", style = MaterialTheme.typography.titleMedium)
+                Text(stringResource(R.string.concert_pitch), style = MaterialTheme.typography.titleMedium)
                 Text(
-                    "Show transposing instruments (clarinet, horn, saxophone...) as they sound.",
+                    stringResource(R.string.concert_pitch_explained),
                     style = MaterialTheme.typography.bodySmall,
                     color = c.graphite,
                 )
@@ -885,14 +908,12 @@ private fun TransposeSheet(ui: ScoreUiState, actions: ScoreActions) {
     }
 }
 
-/** "2 semitones up", "a fifth down"... */
+/** "a whole tone up", "a fifth down"... */
+@Composable
 internal fun semitoneName(semitones: Int): String {
-    val names = listOf(
-        "unison", "a semitone", "a whole tone", "a minor third", "a major third", "a fourth", "a tritone",
-        "a fifth", "a minor sixth", "a major sixth", "a minor seventh", "a major seventh", "an octave",
-    )
-    if (semitones == 0) return "as written"
-    return names[kotlin.math.abs(semitones)] + if (semitones > 0) " up" else " down"
+    if (semitones == 0) return stringResource(R.string.as_written)
+    val interval = stringArrayResource(R.array.intervals)[kotlin.math.abs(semitones)]
+    return stringResource(if (semitones > 0) R.string.interval_up else R.string.interval_down, interval)
 }
 
 /** Annotation tools: pencil, fingerings, breath marks, eraser, undo. */
@@ -901,14 +922,14 @@ private fun AnnotationDock(tool: AnnotateTool, fingering: String, actions: Score
     val c = Grulla.colors
     Dock(if (layout == DockLayout.Compact) DockLayout.Regular else layout) {
         Row(verticalAlignment = Alignment.CenterVertically) {
-            Text("Annotate", style = MaterialTheme.typography.titleMedium, modifier = Modifier.weight(1f))
-            Text("Two fingers scroll", style = MaterialTheme.typography.bodySmall, color = c.graphite)
+            Text(stringResource(R.string.annotate), style = MaterialTheme.typography.titleMedium, modifier = Modifier.weight(1f))
+            Text(stringResource(R.string.two_fingers_scroll), style = MaterialTheme.typography.bodySmall, color = c.graphite)
         }
         FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-            GrullaChip("Pencil", tool == AnnotateTool.PEN, onClick = { actions.setAnnotateTool(AnnotateTool.PEN) }, leadingIcon = AppIcons.Pen)
-            GrullaChip("Fingering", tool == AnnotateTool.FINGERING, onClick = { actions.setAnnotateTool(AnnotateTool.FINGERING) }, leadingIcon = AppIcons.Fingering)
-            GrullaChip("Breath", tool == AnnotateTool.BREATH, onClick = { actions.setAnnotateTool(AnnotateTool.BREATH) }, leadingIcon = AppIcons.Breath)
-            GrullaChip("Eraser", tool == AnnotateTool.ERASER, onClick = { actions.setAnnotateTool(AnnotateTool.ERASER) }, leadingIcon = AppIcons.Eraser)
+            GrullaChip(stringResource(R.string.pencil), tool == AnnotateTool.PEN, onClick = { actions.setAnnotateTool(AnnotateTool.PEN) }, leadingIcon = AppIcons.Pen)
+            GrullaChip(stringResource(R.string.fingering), tool == AnnotateTool.FINGERING, onClick = { actions.setAnnotateTool(AnnotateTool.FINGERING) }, leadingIcon = AppIcons.Fingering)
+            GrullaChip(stringResource(R.string.breath), tool == AnnotateTool.BREATH, onClick = { actions.setAnnotateTool(AnnotateTool.BREATH) }, leadingIcon = AppIcons.Breath)
+            GrullaChip(stringResource(R.string.eraser), tool == AnnotateTool.ERASER, onClick = { actions.setAnnotateTool(AnnotateTool.ERASER) }, leadingIcon = AppIcons.Eraser)
         }
         if (tool == AnnotateTool.FINGERING) {
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
@@ -918,8 +939,8 @@ private fun AnnotationDock(tool: AnnotateTool, fingering: String, actions: Score
             }
         }
         Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-            GhostButton("Undo", onClick = actions::undoAnnotation, icon = AppIcons.Undo)
-            IndigoButton("Done", onClick = actions::stopAnnotating, modifier = Modifier.weight(1f))
+            GhostButton(stringResource(R.string.undo), onClick = actions::undoAnnotation, icon = AppIcons.Undo)
+            IndigoButton(stringResource(R.string.done), onClick = actions::stopAnnotating, modifier = Modifier.weight(1f))
         }
     }
 }
@@ -942,7 +963,7 @@ private fun TempoSheet(ui: ScoreUiState, playback: PlaybackState, actions: Score
             .padding(bottom = 24.dp),
         verticalArrangement = Arrangement.spacedBy(12.dp),
     ) {
-        Text("Tempo", style = MaterialTheme.typography.headlineSmall)
+        Text(stringResource(R.string.tempo), style = MaterialTheme.typography.headlineSmall, modifier = Modifier.semantics { heading() })
         Text("${value.roundToInt()}%", style = MaterialTheme.typography.displayMedium, color = c.ink)
         Slider(
             value = value,
@@ -955,7 +976,7 @@ private fun TempoSheet(ui: ScoreUiState, playback: PlaybackState, actions: Score
             GhostButton("−5", onClick = { apply(value.roundToInt() - 5) })
             GhostButton("+5", onClick = { apply(value.roundToInt() + 5) })
             Spacer(Modifier.weight(1f))
-            GhostButton("Reset to 100%", onClick = { apply(TempoRange.DEFAULT_PERCENT) })
+            GhostButton(stringResource(R.string.reset_to_100), onClick = { apply(TempoRange.DEFAULT_PERCENT) })
         }
         HorizontalDivider(color = c.line, modifier = Modifier.padding(vertical = 4.dp))
         TrainerSection(ui, hasLoop = playback.loop != null, actions)
@@ -975,13 +996,13 @@ private fun TrainerSection(ui: ScoreUiState, hasLoop: Boolean, actions: ScoreAct
         verticalAlignment = Alignment.CenterVertically,
     ) {
         Column(Modifier.weight(1f)) {
-            Text("Speed trainer", style = MaterialTheme.typography.titleMedium)
+            Text(stringResource(R.string.speed_trainer), style = MaterialTheme.typography.titleMedium)
             Text(
                 when {
-                    running == null && !hasLoop -> "Set a loop first: long-press its first and last bar."
-                    running == null -> "Repeats the loop, faster every ${settings.repeats} passes."
-                    running.reachedTarget -> "Target reached: ${running.tempoPercent}%."
-                    else -> "At ${running.tempoPercent}% · pass ${running.passes + 1} of ${running.repeats}"
+                    running == null && !hasLoop -> stringResource(R.string.trainer_needs_loop)
+                    running == null -> pluralStringResource(R.plurals.trainer_explained, settings.repeats, settings.repeats)
+                    running.reachedTarget -> stringResource(R.string.trainer_target_reached, running.tempoPercent)
+                    else -> stringResource(R.string.trainer_progress, running.tempoPercent, running.passes + 1, running.repeats)
                 },
                 style = MaterialTheme.typography.bodySmall,
                 color = if (running != null) c.indigo else c.graphite,
@@ -989,16 +1010,16 @@ private fun TrainerSection(ui: ScoreUiState, hasLoop: Boolean, actions: ScoreAct
         }
         Switch(checked = running != null, onCheckedChange = null)
     }
-    Stepper("Start", "${settings.startPercent}%", { actions.setTrainer(settings.copy(startPercent = settings.startPercent - 5)) }) {
+    Stepper(stringResource(R.string.trainer_start), "${settings.startPercent}%", { actions.setTrainer(settings.copy(startPercent = settings.startPercent - 5)) }) {
         actions.setTrainer(settings.copy(startPercent = settings.startPercent + 5))
     }
-    Stepper("Target", "${settings.targetPercent}%", { actions.setTrainer(settings.copy(targetPercent = settings.targetPercent - 5)) }) {
+    Stepper(stringResource(R.string.trainer_target), "${settings.targetPercent}%", { actions.setTrainer(settings.copy(targetPercent = settings.targetPercent - 5)) }) {
         actions.setTrainer(settings.copy(targetPercent = settings.targetPercent + 5))
     }
-    Stepper("Step", "+${settings.stepPercent}%", { actions.setTrainer(settings.copy(stepPercent = settings.stepPercent - 1)) }) {
+    Stepper(stringResource(R.string.trainer_step), "+${settings.stepPercent}%", { actions.setTrainer(settings.copy(stepPercent = settings.stepPercent - 1)) }) {
         actions.setTrainer(settings.copy(stepPercent = settings.stepPercent + 1))
     }
-    Stepper("Passes per step", "${settings.repeats}", { actions.setTrainer(settings.copy(repeats = settings.repeats - 1)) }) {
+    Stepper(stringResource(R.string.trainer_passes), "${settings.repeats}", { actions.setTrainer(settings.copy(repeats = settings.repeats - 1)) }) {
         actions.setTrainer(settings.copy(repeats = settings.repeats + 1))
     }
 }
@@ -1007,14 +1028,14 @@ private fun TrainerSection(ui: ScoreUiState, hasLoop: Boolean, actions: ScoreAct
 private fun Stepper(label: String, value: String, onMinus: () -> Unit, onPlus: () -> Unit) {
     Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
         Text(label, style = MaterialTheme.typography.bodyLarge, modifier = Modifier.weight(1f))
-        RoundOutlineButton(AppIcons.Minus, "Less $label", onClick = onMinus, size = 40.dp)
+        RoundOutlineButton(AppIcons.Minus, stringResource(R.string.less, label), onClick = onMinus, size = 40.dp)
         Text(
             value,
             style = MaterialTheme.typography.titleMedium.copy(fontFeatureSettings = "tnum"),
             modifier = Modifier.width(64.dp),
             textAlign = TextAlign.Center,
         )
-        RoundOutlineButton(AppIcons.Add, "More $label", onClick = onPlus, size = 40.dp)
+        RoundOutlineButton(AppIcons.Add, stringResource(R.string.more, label), onClick = onPlus, size = 40.dp)
     }
 }
 
@@ -1034,13 +1055,13 @@ private fun ListenSheet(ui: ScoreUiState, onStart: (ListenMode, Set<Int>) -> Uni
             .padding(bottom = 24.dp),
         verticalArrangement = Arrangement.spacedBy(12.dp),
     ) {
-        Text("Practise with the microphone", style = MaterialTheme.typography.headlineSmall)
+        Text(stringResource(R.string.follow_me_button), style = MaterialTheme.typography.headlineSmall, modifier = Modifier.semantics { heading() })
         if (ui.mixer.size > 1) {
-            Text("Your part", style = MaterialTheme.typography.titleMedium)
+            Text(stringResource(R.string.your_part), style = MaterialTheme.typography.titleMedium)
             FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
                 for (channel in ui.mixer) {
                     GrullaChip(
-                        channel.label,
+                        channelLabel(channel),
                         selected = channel.trackIndex in mine,
                         onClick = {
                             val next = if (channel.trackIndex in mine) mine - channel.trackIndex else mine + channel.trackIndex
@@ -1051,23 +1072,19 @@ private fun ListenSheet(ui: ScoreUiState, onStart: (ListenMode, Set<Int>) -> Uni
             }
         }
         ModeCard(
-            title = "Follow me",
-            detail = "The score waits for you and moves on with every right note. No sound.",
+            title = stringResource(R.string.follow_me),
+            detail = stringResource(R.string.follow_me_explained),
             onClick = { onStart(ListenMode.FOLLOW, mine) },
         )
         ModeCard(
-            title = "Wait for me",
-            detail = if (others.isEmpty()) {
-                "Choose only your own part: the other parts play along and wait for each of your notes."
-            } else {
-                "The other parts play along and wait for each of your notes. Headphones help the microphone hear only you."
-            },
+            title = stringResource(R.string.wait_for_me),
+            detail = stringResource(if (others.isEmpty()) R.string.wait_for_me_choose_part else R.string.wait_for_me_explained),
             enabled = others.isNotEmpty(),
             onClick = { onStart(ListenMode.WAIT, mine) },
         )
         if (ui.mixer.isNotEmpty() && mine.size < all.size) {
             Text(
-                "Mute and solo in Parts still apply to what you hear.",
+                stringResource(R.string.mix_still_applies),
                 style = MaterialTheme.typography.bodySmall,
                 color = c.graphite,
             )
@@ -1111,20 +1128,20 @@ private fun PracticeSheet(practice: ScorePractice?, onLoopBar: (Int, Int) -> Uni
             .padding(bottom = 24.dp),
         verticalArrangement = Arrangement.spacedBy(12.dp),
     ) {
-        Text("Practice", style = MaterialTheme.typography.headlineSmall)
+        Text(stringResource(R.string.practice), style = MaterialTheme.typography.headlineSmall, modifier = Modifier.semantics { heading() })
         Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-            Stat("Last 7 days", formatDuration(log.recentMs(LocalDate.now())), Modifier.weight(1f))
-            Stat("In total", formatDuration(log.totalMs), Modifier.weight(1f))
+            Stat(stringResource(R.string.last_7_days), formatDuration(log.recentMs(LocalDate.now())), Modifier.weight(1f))
+            Stat(stringResource(R.string.in_total), formatDuration(log.totalMs), Modifier.weight(1f))
         }
         Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-            Stat("Loops played", "${log.loopPasses}", Modifier.weight(1f))
-            Stat("Follow me", log.accuracy?.let { "${(it * 100).roundToInt()}% right" } ?: "–", Modifier.weight(1f))
+            Stat(stringResource(R.string.loops_played), "${log.loopPasses}", Modifier.weight(1f))
+            Stat(stringResource(R.string.follow_me), log.accuracy?.let { stringResource(R.string.percent_right, (it * 100).roundToInt()) } ?: "–", Modifier.weight(1f))
         }
-        Text("Trouble bars", style = MaterialTheme.typography.titleMedium, modifier = Modifier.padding(top = 4.dp))
+        Text(stringResource(R.string.trouble_bars), style = MaterialTheme.typography.titleMedium, modifier = Modifier.padding(top = 4.dp))
         val trouble = log.troubleBars()
         if (trouble.isEmpty()) {
             Text(
-                "Play with Follow me and the bars with the most wrong notes show up here, ready to loop.",
+                stringResource(R.string.trouble_bars_empty),
                 style = MaterialTheme.typography.bodyMedium,
                 color = c.graphite,
             )
@@ -1132,16 +1149,16 @@ private fun PracticeSheet(practice: ScorePractice?, onLoopBar: (Int, Int) -> Uni
         for (bar in trouble) {
             Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
                 Column(Modifier.weight(1f)) {
-                    Text("Bar ${bar.bar}", style = MaterialTheme.typography.bodyLarge)
+                    Text(stringResource(R.string.bar_n, bar.bar), style = MaterialTheme.typography.bodyLarge)
                     Text(
-                        "${bar.misses} wrong of ${bar.attempts} notes",
+                        pluralStringResource(R.plurals.wrong_of_notes, bar.attempts, bar.misses, bar.attempts),
                         style = MaterialTheme.typography.bodySmall,
                         color = c.graphite,
                     )
                 }
                 MissMeter(bar.missRate.toFloat(), Modifier.width(72.dp))
                 Spacer(Modifier.width(12.dp))
-                GhostButton("Loop", onClick = { onLoopBar(bar.bar, bar.bar) })
+                GhostButton(stringResource(R.string.loop), onClick = { onLoopBar(bar.bar, bar.bar) })
             }
         }
     }
@@ -1179,9 +1196,27 @@ private fun Stat(label: String, value: String, modifier: Modifier) {
 }
 
 /** "1 h 05 min", "12 min", "0 min". */
+@Composable
 internal fun formatDuration(ms: Long): String {
-    val minutes = ms / 60_000
-    return if (minutes >= 60) "%d h %02d min".format(minutes / 60, minutes % 60) else "$minutes min"
+    val minutes = (ms / 60_000).toInt()
+    return if (minutes >= 60) {
+        stringResource(R.string.duration_hours, minutes / 60, "%02d".format(minutes % 60))
+    } else {
+        stringResource(R.string.duration_minutes, minutes)
+    }
+}
+
+/** A mixer strip's name: the part, and which staff for parts on several staves. */
+@Composable
+internal fun channelLabel(channel: MixerChannel): String = channelLabel(LocalResources.current, channel)
+
+internal fun channelLabel(resources: Resources, channel: MixerChannel): String {
+    val part = channel.partName ?: return channel.label
+    return when {
+        channel.staves <= 1 -> part
+        channel.staves == 2 -> resources.getString(if (channel.staff == 1) R.string.staff_upper else R.string.staff_lower, part)
+        else -> resources.getString(R.string.staff_n, part, channel.staff)
+    }
 }
 
 internal fun formatTime(ms: Double): String {

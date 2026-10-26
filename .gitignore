@@ -9,3 +9,7 @@ captures/
 .externalNativeBuild/
 .cxx/
 node_modules/
+
+# Release signing (never commit)
+keystore.properties
+*.jks

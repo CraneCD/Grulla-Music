@@ -7,6 +7,7 @@ import android.util.Base64
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import com.grulla.music.core.library.LibraryEntry
+import com.grulla.music.core.library.ScoreSettings
 import com.grulla.music.core.listen.ChordEvent
 import com.grulla.music.core.listen.FollowController
 import com.grulla.music.core.listen.FollowResult
@@ -15,7 +16,6 @@ import com.grulla.music.core.listen.FollowStep
 import com.grulla.music.core.listen.NoteEvent
 import com.grulla.music.core.listen.PitchEstimate
 import com.grulla.music.core.listen.noteName
-import com.grulla.music.core.library.ScoreSettings
 import com.grulla.music.core.playback.MixState
 import com.grulla.music.core.playback.Mixer
 import com.grulla.music.core.playback.MixerChannel
@@ -31,6 +31,7 @@ import com.grulla.music.core.practice.SpeedTrainerSettings
 import com.grulla.music.core.score.LoadedScore
 import com.grulla.music.core.score.PartListParser
 import com.grulla.music.core.score.RenderedScore
+import com.grulla.music.core.score.ScoreLoadException
 import com.grulla.music.core.timemap.Timemap
 import com.grulla.music.listen.MicrophoneListener
 import com.grulla.music.playback.awaitFrameNanos
@@ -42,17 +43,17 @@ import com.grulla.music.score.ScoreWebViewHost
 import com.grulla.music.score.WebCommand
 import com.grulla.music.ui.BarInfo
 import com.grulla.music.ui.ScoreActions
+import com.grulla.music.ui.channelLabel
+import java.time.LocalDate
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.FlowPreview
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.channels.Channel
-import java.time.LocalDate
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.Flow
-import kotlinx.coroutines.flow.SharingStarted
-import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.combine
@@ -60,6 +61,7 @@ import kotlinx.coroutines.flow.debounce
 import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.filterNotNull
 import kotlinx.coroutines.flow.receiveAsFlow
+import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
@@ -232,11 +234,10 @@ class ScoreViewModel(application: Application) :
             } catch (e: CancellationException) {
                 throw e
             } catch (e: Exception) {
-                val message = if (e is SecurityException) "This file is no longer accessible. Open it again from the file picker." else e.message
-                mutableUi.update { it.copy(loading = false, error = message ?: "Could not open the file.") }
+                mutableUi.update { it.copy(loading = false, error = openError(e)) }
                 return@launch
             }
-            val title = score.title ?: name.ifBlank { "Score" }
+            val title = score.title ?: name.ifBlank { app.getString(R.string.untitled_score) }
             currentUri = uri
             val entry = library.opened(uri, title, score.composer)
             annotationsJson = withContext(Dispatchers.IO) { runCatching { library.loadAnnotations(entry.id) }.getOrNull() } ?: NO_ANNOTATIONS
@@ -367,6 +368,18 @@ class ScoreViewModel(application: Application) :
         }
     }
 
+    /** A file that could not be opened, in words. */
+    private fun openError(e: Exception): String = when {
+        e is SecurityException -> app.getString(R.string.error_no_access)
+        e is ScoreLoadException -> when (e.reason) {
+            ScoreLoadException.Reason.EMPTY -> app.getString(R.string.error_empty)
+            ScoreLoadException.Reason.NOT_MUSICXML -> app.getString(R.string.error_not_musicxml)
+            ScoreLoadException.Reason.TOO_LARGE -> app.getString(R.string.error_too_large)
+            ScoreLoadException.Reason.UNREADABLE -> app.getString(R.string.error_unreadable_detail, e.message ?: "")
+        }
+        else -> app.getString(R.string.error_cannot_open)
+    }
+
     /** Bar position for the top bar, e.g. bar 5 of 16. */
     fun barAt(positionMs: Double): BarInfo? = timemap?.let { BarInfo(it.barAt(positionMs), it.barCount) }
 
@@ -374,7 +387,7 @@ class ScoreViewModel(application: Application) :
         val map = timemap ?: return null
         val first = map.barAt(range.startMs)
         val last = map.barAt(range.endMs - 1)
-        return if (first == last) "Loop bar $first" else "Loop $first–$last"
+        return if (first == last) app.getString(R.string.loop_bar, first) else app.getString(R.string.loop_bars, first, last)
     }
 
     /** Restores what was saved for this score, once it has been rendered. */
@@ -436,7 +449,7 @@ class ScoreViewModel(application: Application) :
             } catch (e: CancellationException) {
                 throw e
             } catch (e: Exception) {
-                mutableUi.update { it.copy(loading = false, error = "Could not prepare playback: ${e.message}") }
+                mutableUi.update { it.copy(loading = false, error = app.getString(R.string.error_prepare_playback, e.message ?: "")) }
                 return@launch
             }
             if (rendered.source != expectedSource || ScoreOrigin.scoreUrl(scoreVersion) != expectedSource) return@launch
@@ -478,7 +491,7 @@ class ScoreViewModel(application: Application) :
         if (first == null) {
             pendingLoopStart = measureId
             commandChannel.trySend(WebCommand.SetLoop(measureId, measureId))
-            mutableUi.update { it.copy(notice = "Loop start set. Long-press the last measure of the loop.") }
+            mutableUi.update { it.copy(notice = app.getString(R.string.loop_start_set)) }
             return
         }
         pendingLoopStart = null
@@ -506,7 +519,12 @@ class ScoreViewModel(application: Application) :
     }
 
     override fun onWebError(message: String) {
-        mutableUi.update { it.copy(loading = false, error = message) }
+        val text = when {
+            "could not read this file as MusicXML" in message -> app.getString(R.string.error_not_musicxml)
+            message == ScoreWebCallbacks.RENDERER_GONE -> app.getString(R.string.error_renderer_gone)
+            else -> app.getString(R.string.error_score_view, message)
+        }
+        mutableUi.update { it.copy(loading = false, error = text) }
     }
 
     // --- Callbacks from the playback controller ------------------------------------
@@ -521,7 +539,7 @@ class ScoreViewModel(application: Application) :
     }
 
     override fun onPlaybackError(message: String) {
-        mutableUi.update { it.copy(error = message) }
+        mutableUi.update { it.copy(error = app.getString(R.string.error_playback, message)) }
     }
 
     // --- Follow me / Wait for me: listen to the player ---------------------------------
@@ -529,7 +547,7 @@ class ScoreViewModel(application: Application) :
     private var follow: FollowController? = null
     private var microphone: MicrophoneListener? = null
     private var listenMode = ListenMode.FOLLOW
-    private var followedPart = "All parts"
+    private var followedPart = ""
 
     /**
      * Starts listening. [tracks] are the MIDI tracks of the part(s) the user plays
@@ -545,11 +563,11 @@ class ScoreViewModel(application: Application) :
         mutableUi.update { it.copy(myTracks = chosen) }
         val steps = FollowScore.build(score.timemap, score.pitches, score.midi, chosen.takeIf { it.isNotEmpty() })
         if (steps.steps.isEmpty()) {
-            mutableUi.update { it.copy(notice = "There are no notes to follow in the selected parts.") }
+            mutableUi.update { it.copy(notice = app.getString(R.string.no_notes_to_follow)) }
             return
         }
         if (mode == ListenMode.WAIT && state.mixer.all { it.trackIndex in chosen || it.trackIndex in state.mix.silencedTracks(state.mixer) }) {
-            mutableUi.update { it.copy(notice = "Wait for me needs another part to play along. Choose only your own part.") }
+            mutableUi.update { it.copy(notice = app.getString(R.string.wait_needs_other_part)) }
             return
         }
         val prefs = app.player.preferences.value
@@ -557,11 +575,11 @@ class ScoreViewModel(application: Application) :
         val controller = FollowController(steps, chordsNeedAllNotes = prefs.chordsNeedAllNotes).also {
             it.startAt(playbackState.value.positionMs)
         }
-        followedPart = state.mixer.filter { it.trackIndex in chosen }.map { it.label }
-            .takeIf { it.isNotEmpty() && it.size < state.mixer.size }?.joinToString(", ") ?: "All parts"
+        followedPart = state.mixer.filter { it.trackIndex in chosen }.map { channelLabel(app.resources, it) }
+            .takeIf { it.isNotEmpty() && it.size < state.mixer.size }?.joinToString(", ") ?: app.getString(R.string.all_parts)
         val mic = MicrophoneListener(onNote = ::onHeard, onLevel = ::onHearing, onChord = ::onChordHeard, chordSensitivity = prefs.chordSensitivity)
         if (!mic.start(app)) {
-            mutableUi.update { it.copy(error = "The microphone could not be opened.") }
+            mutableUi.update { it.copy(error = app.getString(R.string.error_microphone)) }
             return
         }
         follow = controller
@@ -592,7 +610,7 @@ class ScoreViewModel(application: Application) :
         } else {
             commandChannel.trySend(WebCommand.Highlight(emptyList(), false))
         }
-        mutableUi.update { it.copy(notice = "Well done! You reached the end.") }
+        mutableUi.update { it.copy(notice = app.getString(R.string.well_done)) }
     }
 
     override fun stopListening() = stopListening(seek = true)
@@ -716,7 +734,7 @@ class ScoreViewModel(application: Application) :
             return
         }
         if (playbackState.value.loop == null) {
-            showNotice("The speed trainer repeats a loop. Long-press the first and last bar to set one.")
+            showNotice(app.getString(R.string.trainer_needs_loop))
             return
         }
         playback.setLoopEnabled(true)
@@ -787,7 +805,7 @@ class ScoreViewModel(application: Application) :
         commandChannel.trySend(if (enabled) WebCommand.SetLoop(measures.first, measures.second) else WebCommand.SetLoop(null, null))
     }
 
-    override fun explainLoop() = showNotice("To loop a passage, long-press its first bar, then its last bar.")
+    override fun explainLoop() = showNotice(app.getString(R.string.loop_explained))
 
     override fun seekToFraction(fraction: Float) {
         val map = timemap ?: return

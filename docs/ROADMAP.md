@@ -10,58 +10,39 @@
 | M4 | Library: recent scores, thumbnails, per-score settings, persistent file access |
 | M5 | Follow me: microphone pitch detection (own YIN); the score moves on when you play the expected note |
 | Design | "Crane & Ink" theme, redesigned screens, night mode setting, app icon, screenshot tests |
+| M6 | Smoother on the music stand: the score view stays alive; Verovio in a Web Worker with the first page early; Bluetooth page-turn pedals and early page turns; two-page spreads on tablets, a one-row dock in landscape, tabletop posture; silent scrolling at the tempo |
+| M7 | Practice coach: speed trainer; Wait for me (the accompaniment waits for you); chord checking in Follow me; practice log with trouble bars |
+| M8 | Score tools: transpose and concert pitch; instrument and volume per part; annotations (pencil, fingerings, breath marks); library search, sorting, setlists and folder import |
+| M9 | Release: English and Spanish (per-app language); TalkBack labels and headings, text up to 200 %, 48 dp targets; R8, signing config, App Bundle with ABI splits; targetSdk 37; Play listing and privacy policy (`docs/play-store`, `docs/PRIVACY.md`) |
 
-All of the above has been verified on a device.
+M1–M5 and the design have been verified on a device; M6–M9 are covered by the unit,
+screenshot, native and browser tests and wait for a device run.
 
-## Next
+## Open decision
 
-### M6: Smoother on the music stand
-- **Instant return to a score:** keep the WebView alive when going back to the library,
-  instead of reloading Verovio.
-- **Large scores:** run Verovio in a Web Worker, so layout never freezes the page, and show
-  the first page while the rest lays out.
-- **Page-turn pedals:** Bluetooth page turners send PageUp/PageDown or arrow keys. Map them
-  to the next/previous page or system, and add a "turn on the last bar" option.
-- **Tablets and landscape:** a two-page spread in page view, a wider dock layout, and
-  foldable postures.
-- **Hands-free scrolling while practising without playback:** an optional slow,
-  tempo-based scroll.
+- **License for the app's own code.** Everything bundled is compatible with either choice
+  (Verovio and FluidSynth are separate LGPL libraries): a permissive license (MIT or
+  Apache-2.0), a copyleft one (GPL-3.0 or MPL-2.0), or none ("all rights reserved") for a
+  closed app.
 
-### M7: Practice coach
-- **Speed trainer:** a loop starts at a lower tempo and goes up a step every N clean
-  repeats, until the target tempo.
-- **Wait for me:** the app plays the other parts and waits at each of your notes. It
-  combines Follow me with playback, so the accompaniment follows you.
-- **Chords in Follow me:** polyphonic detection, so a chord counts only when its notes are
-  heard, with a sensitivity setting per instrument.
-- **Practice log:** time spent per score, loops repeated, and Follow me accuracy per bar.
-  A "trouble bars" view suggests where to loop.
+## To publish on Google Play
 
-### M8: Score tools
-- **Transpose:** both the notation (Verovio's `transpose` option) and the playback, for
-  transposing instruments or singing in another key.
-- **Mixer:** an instrument (General MIDI program) and a volume per part, not only mute/solo.
-- **Annotations:** pencil marks, fingerings and breath marks drawn over the score, saved
-  per score.
-- **Library organisation:** search, sorting, folders or setlists, and importing a whole
-  folder.
+1. Create an upload key and `keystore.properties` (README, "Release builds").
+2. `./gradlew bundleRelease` and upload `app-release.aab` to a closed testing track.
+3. Fill the listing from `docs/play-store/listing-en.md` / `listing-es.md`, with the
+   screenshots in `app/screenshots/`, and publish `docs/PRIVACY.md` at a public URL.
+4. Data safety form: no data collected (answers in the listing file).
 
-### M9: Release
-- **License:** choose a license for the app's own code (to decide).
-- **Languages:** Spanish and English, with all strings in resources.
-- **Accessibility:**
-  - a TalkBack pass over all screens
-  - font scaling up to 200%
-  - large touch targets on the dock
-- **Release build:**
-  - R8/minify and a signing config
-  - an Android App Bundle with per-ABI splits (a smaller download than the 42 MB debug APK)
-  - targetSdk 37, after testing Android 17 behaviour changes
-- **Play Store:** listing, screenshots (from `app/screenshots`), and a privacy note. The
-  microphone is only used in Follow me, and nothing leaves the device.
+## Next ideas
 
-### Later / optional
-- **Native Verovio** (C++ via the NDK), only if M6's worker is still too slow on real
-  scores.
-- **Recording:** record yourself over the accompaniment and compare.
-- **Backup:** sync the library and settings through Android backup.
+- **Device pass for 1.0:** Wait for me timing with FluidSynth on a few phones, chord
+  sensitivity on real pianos and guitars, pedals from two brands, a foldable.
+- **Wait for me without pauses:** hold inside the native engine at the exact sample, and
+  sustain the accompaniment's notes while waiting.
+- **Polyphonic Follow me for two hands:** follow both staves of a piano part at once,
+  each at its own pace.
+- **Recording:** record yourself over the accompaniment and listen back.
+- **Backup:** library, setlists, annotations and practice log through Android backup, and
+  an export file.
+- **Native Verovio** (C++ via the NDK), if very large scores are still slow in the worker.
+- **Instrument names in Spanish** (General MIDI list).

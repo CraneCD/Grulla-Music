@@ -1,5 +1,6 @@
 import java.net.URI
 import java.security.MessageDigest
+import java.util.Properties
 
 plugins {
     // AGP 9 compiles Kotlin itself (built-in Kotlin), so no separate kotlin-android plugin.
@@ -40,15 +41,47 @@ android {
     defaultConfig {
         applicationId = "com.grulla.music"
         minSdk = 26
-        targetSdk = 36
-        versionCode = 3
-        versionName = "0.3.0"
+        targetSdk = 37
+        versionCode = 4
+        versionName = "1.0.0"
+    }
+
+    signingConfigs {
+        // A shared debug key in the repository: debug builds from any machine update each other.
+        getByName("debug") {
+            storeFile = file("debug.keystore")
+            storePassword = "android"
+            keyAlias = "androiddebugkey"
+            keyPassword = "android"
+        }
+        // The release (upload) key stays out of git: keystore.properties next to this file, or
+        // the GRULLA_KEYSTORE* environment variables. See README "Release builds".
+        val release = releaseKey()
+        if (release != null) {
+            create("release") {
+                storeFile = file(release.getProperty("storeFile"))
+                storePassword = release.getProperty("storePassword")
+                keyAlias = release.getProperty("keyAlias")
+                keyPassword = release.getProperty("keyPassword")
+            }
+        }
     }
 
     buildTypes {
         release {
-            isMinifyEnabled = false
+            isMinifyEnabled = true
+            isShrinkResources = true
+            proguardFiles(getDefaultProguardFile("proguard-android-optimize.txt"), "proguard-rules.pro")
+            // Without a release key the build is signed with the debug key, so it can still be installed for testing.
+            signingConfig = signingConfigs.findByName("release") ?: signingConfigs.getByName("debug")
         }
+    }
+
+    bundle {
+        // Google Play delivers only the device's native libraries (arm64 or armv7)...
+        abi { enableSplit = true }
+        // ...but every language, so the in-app language switch works offline.
+        language { enableSplit = false }
     }
 
     compileOptions {
@@ -76,6 +109,8 @@ android {
     androidResources {
         // The SoundFont is already compressed (Ogg Vorbis samples) and is read with openFd().
         noCompress += "sf3"
+        // English and Spanish, offered in Android 13+'s per-app language settings.
+        generateLocaleConfig = true
     }
 }
 
@@ -120,3 +155,16 @@ roborazzi {
 }
 
 tasks.named("preBuild") { dependsOn(downloadSoundFont) }
+
+/** Release signing from keystore.properties or GRULLA_KEYSTORE, _PASSWORD, _ALIAS, _KEY_PASSWORD; null if neither is set. */
+fun releaseKey(): Properties? {
+    val file = rootProject.file("keystore.properties")
+    if (file.isFile) return Properties().apply { file.inputStream().use { load(it) } }
+    val store = System.getenv("GRULLA_KEYSTORE") ?: return null
+    return Properties().apply {
+        setProperty("storeFile", store)
+        setProperty("storePassword", System.getenv("GRULLA_KEYSTORE_PASSWORD") ?: "")
+        setProperty("keyAlias", System.getenv("GRULLA_KEY_ALIAS") ?: "upload")
+        setProperty("keyPassword", System.getenv("GRULLA_KEY_PASSWORD") ?: System.getenv("GRULLA_KEYSTORE_PASSWORD") ?: "")
+    }
+}

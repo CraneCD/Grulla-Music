@@ -5,6 +5,7 @@ import android.net.Uri
 import android.os.Build
 import android.provider.OpenableColumns
 import androidx.core.content.edit
+import com.grulla.music.R
 import com.grulla.music.playback.MediaPlayerMidiPlayer
 import com.grulla.music.synth.FluidSynthMidiPlayer
 import java.io.File
@@ -27,7 +28,7 @@ data class AudioState(
     val soundFontName: String = AudioEngine.DEFAULT_SOUNDFONT_NAME,
     val customSoundFont: Boolean = false,
     /** What is actually playing, e.g. "FluidSynth · 48 kHz". */
-    val status: String = "Starting…",
+    val status: String = "…",
     val busy: Boolean = true,
     /** FluidSynth needs AAudio (Android 8.1+). */
     val fluidSynthSupported: Boolean = AudioEngine.FLUIDSYNTH_SUPPORTED,
@@ -73,7 +74,7 @@ class AudioEngine(context: Context, private val scope: CoroutineScope) {
     /** Copies a user-chosen .sf2 / .sf3 into app storage and switches to it. */
     fun importSoundFont(uri: Uri) {
         scope.launch {
-            mutableState.update { it.copy(busy = true, status = "Copying SoundFont…") }
+            mutableState.update { it.copy(busy = true, status = app.getString(R.string.audio_copying)) }
             val result = runCatching { withContext(Dispatchers.IO) { copySoundFont(uri) } }
             result.onSuccess { name ->
                 prefs.edit { putString(KEY_CUSTOM_NAME, name) }
@@ -81,7 +82,7 @@ class AudioEngine(context: Context, private val scope: CoroutineScope) {
                 apply()
             }
             result.onFailure { error ->
-                mutableState.update { it.copy(busy = false, status = "Could not use that file: ${error.message}") }
+                mutableState.update { it.copy(busy = false, status = app.getString(R.string.audio_bad_file, error.message ?: "")) }
             }
         }
     }
@@ -94,23 +95,23 @@ class AudioEngine(context: Context, private val scope: CoroutineScope) {
     }
 
     private suspend fun apply() = mutex.withLock {
-        mutableState.update { it.copy(busy = true, status = "Starting…") }
+        mutableState.update { it.copy(busy = true, status = app.getString(R.string.audio_starting)) }
         if (state.value.choice == EngineChoice.ANDROID_MIDI || !FLUIDSYNTH_SUPPORTED) {
             player.use(mediaPlayer)
-            val note = if (FLUIDSYNTH_SUPPORTED) "" else " (FluidSynth needs Android 8.1 or newer)"
-            mutableState.update { it.copy(busy = false, status = "Android built-in MIDI$note") }
+            val status = app.getString(if (FLUIDSYNTH_SUPPORTED) R.string.engine_android else R.string.audio_android_only)
+            mutableState.update { it.copy(busy = false, status = status) }
             return@withLock
         }
         val result = runCatching { withContext(Dispatchers.IO) { startFluidSynth() } }
         result.onSuccess { synth ->
             player.use(synth)
             val khz = synth.sampleRate / 1000.0
-            mutableState.update { it.copy(busy = false, status = "FluidSynth · ${"%.1f".format(khz).removeSuffix(".0")} kHz") }
+            mutableState.update { it.copy(busy = false, status = app.getString(R.string.audio_fluidsynth_rate, "%.1f".format(khz).removeSuffix(".0").removeSuffix(",0"))) }
         }
         result.onFailure { error ->
             player.use(mediaPlayer)
             mutableState.update {
-                it.copy(busy = false, status = "FluidSynth unavailable (${error.message}); using Android built-in MIDI")
+                it.copy(busy = false, status = app.getString(R.string.audio_fluidsynth_failed, error.message ?: ""))
             }
         }
     }

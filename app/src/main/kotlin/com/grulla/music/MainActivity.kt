@@ -2,8 +2,8 @@ package com.grulla.music
 
 import android.annotation.SuppressLint
 import android.content.Intent
-import android.os.Bundle
 import android.graphics.Color
+import android.os.Bundle
 import android.view.KeyEvent
 import androidx.activity.ComponentActivity
 import androidx.activity.SystemBarStyle
@@ -19,21 +19,21 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
+import androidx.compose.ui.unit.dp
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.compose.LifecycleEventEffect
-import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.window.layout.FoldingFeature
 import androidx.window.layout.WindowInfoTracker
 import androidx.window.layout.WindowMetricsCalculator
-import kotlinx.coroutines.flow.Flow
-import kotlinx.coroutines.flow.map
 import com.grulla.music.ui.GrullaTheme
 import com.grulla.music.ui.LibraryScreen
 import com.grulla.music.ui.ScoreScreen
 import com.grulla.music.ui.SettingsScreen
 import com.grulla.music.ui.Tabletop
 import com.grulla.music.ui.isNightTheme
+import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.map
 
 private enum class Screen { LIBRARY, SCORE, SETTINGS }
 

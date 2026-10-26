@@ -53,7 +53,7 @@ class ScoreFiles(private val context: Context) {
             val n = read(buffer)
             if (n < 0) break
             total += n
-            if (total > MAX_FILE_BYTES) throw ScoreLoadException("The file is too large to open.")
+            if (total > MAX_FILE_BYTES) throw ScoreLoadException("The file is too large to open.", reason = ScoreLoadException.Reason.TOO_LARGE)
             out.write(buffer, 0, n)
         }
         return out.toByteArray()

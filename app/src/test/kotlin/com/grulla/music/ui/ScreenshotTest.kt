@@ -11,30 +11,30 @@ import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.test.junit4.createComposeRule
 import androidx.compose.ui.test.onRoot
+import androidx.compose.ui.unit.dp
 import com.github.takahirom.roborazzi.captureRoboImage
 import com.grulla.music.AnnotateTool
 import com.grulla.music.ListenMode
 import com.grulla.music.ListeningState
-import com.grulla.music.TrainerState
-import com.grulla.music.core.practice.ScorePractice
-import com.grulla.music.core.practice.SpeedTrainerSettings
-import java.time.LocalDate
 import com.grulla.music.ScoreUiState
+import com.grulla.music.TrainerState
 import com.grulla.music.audio.AudioState
 import com.grulla.music.audio.EngineChoice
 import com.grulla.music.core.library.Library
 import com.grulla.music.core.library.LibraryEntry
-import com.grulla.music.core.library.Setlist
 import com.grulla.music.core.library.ScoreSettings
+import com.grulla.music.core.library.Setlist
 import com.grulla.music.core.playback.MixState
 import com.grulla.music.core.playback.MixerChannel
 import com.grulla.music.core.playback.PlaybackState
 import com.grulla.music.core.playback.TimeRange
 import com.grulla.music.core.playback.Transport
+import com.grulla.music.core.practice.ScorePractice
+import com.grulla.music.core.practice.SpeedTrainerSettings
 import com.grulla.music.score.LayoutMode
-import androidx.compose.ui.unit.dp
 import com.grulla.music.settings.PlayerPreferences
 import java.lang.reflect.Proxy
+import java.time.LocalDate
 import org.junit.Rule
 import org.junit.Test
 import org.junit.runner.RunWith
@@ -263,6 +263,45 @@ class ScreenshotTest {
         )
         ScoreScreenContent(ui, playing, BarInfo(3, 16), NoActions, {}, {}, { _, _ -> }, openSheet = ScoreSheet.PARTS) {
             ScoreImage("score-day.png", it)
+        }
+    }
+
+    @Test
+    @Config(qualifiers = "+es")
+    fun scoreSpanish() = capture("score-es", ThemeMode.LIGHT) {
+        ScoreScreenContent(scoreUi.copy(loopLabel = "Bucle 3–5"), playing, BarInfo(5, 16), NoActions, {}, {}, { _, _ -> }) {
+            ScoreImage("score-day.png", it)
+        }
+    }
+
+    @Test
+    @Config(qualifiers = "+es")
+    fun librarySpanish() = capture("library-es", ThemeMode.LIGHT) {
+        val thumb = image("score-day.png")
+        LibraryContent(library, LibraryView(), {}, thumbnail = { _, m -> ThumbnailImage(thumb, m) }, NoLibraryActions)
+    }
+
+    @Test
+    @Config(fontScale = 2.0f)
+    fun scoreLargeText() = capture("score-large-text", ThemeMode.LIGHT) {
+        ScoreScreenContent(scoreUi, playing, BarInfo(5, 16), NoActions, {}, {}, { _, _ -> }) { ScoreImage("score-day.png", it) }
+    }
+
+    @Test
+    @Config(fontScale = 2.0f)
+    fun libraryLargeText() = capture("library-large-text", ThemeMode.LIGHT) {
+        val thumb = image("score-day.png")
+        LibraryContent(library, LibraryView(), {}, thumbnail = { _, m -> ThumbnailImage(thumb, m) }, NoLibraryActions)
+    }
+
+    @Test
+    @Config(fontScale = 2.0f)
+    fun listeningLargeText() = capture("follow-me-large-text", ThemeMode.DARK) {
+        val ui = scoreUi.copy(
+            listening = ListeningState(expected = "C4 E4 G4", step = 12, total = 63, part = "Piano – upper staff", hearing = "E4", wrong = "D4"),
+        )
+        ScoreScreenContent(ui, playing.copy(transport = Transport.PAUSED), BarInfo(6, 16), NoActions, {}, {}, { _, _ -> }) {
+            ScoreImage("score-night.png", it)
         }
     }
 

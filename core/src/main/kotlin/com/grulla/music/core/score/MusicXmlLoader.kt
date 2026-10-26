@@ -23,7 +23,14 @@ data class LoadedScore(
     val composer: String? = null,
 )
 
-class ScoreLoadException(message: String, cause: Throwable? = null) : Exception(message, cause)
+class ScoreLoadException(
+    message: String,
+    cause: Throwable? = null,
+    /** Why, for wording the message in the user's language. */
+    val reason: Reason = Reason.UNREADABLE,
+) : Exception(message, cause) {
+    enum class Reason { EMPTY, NOT_MUSICXML, TOO_LARGE, UNREADABLE }
+}
 
 /**
  * Turns the raw bytes of a .mxl / .musicxml / .xml file into a MusicXML string.
@@ -44,14 +51,17 @@ object MusicXmlLoader {
         else ScoreFormat.MUSICXML
 
     fun load(bytes: ByteArray): LoadedScore {
-        if (bytes.isEmpty()) throw ScoreLoadException("The file is empty.")
+        if (bytes.isEmpty()) throw ScoreLoadException("The file is empty.", reason = ScoreLoadException.Reason.EMPTY)
         val format = detectFormat(bytes)
         val xml = when (format) {
             ScoreFormat.MXL -> decodeXml(extractRootFile(bytes))
             ScoreFormat.MUSICXML -> decodeXml(bytes)
         }
         if (!looksLikeMusicXml(xml)) {
-            throw ScoreLoadException("This file does not look like MusicXML (no <score-partwise> or <score-timewise> root).")
+            throw ScoreLoadException(
+                "This file does not look like MusicXML (no <score-partwise> or <score-timewise> root).",
+                reason = ScoreLoadException.Reason.NOT_MUSICXML,
+            )
         }
         return LoadedScore(musicXml = xml, format = format, title = extractTitle(xml), composer = extractComposer(xml))
     }
@@ -62,7 +72,7 @@ object MusicXmlLoader {
         val rootPath = entries[CONTAINER_PATH]?.let(::rootFileFromContainer)
             ?: entries.keys.firstOrNull { !it.startsWith("META-INF/") && it.endsWith(".xml", ignoreCase = true) }
             ?: entries.keys.firstOrNull { it.endsWith(".musicxml", ignoreCase = true) }
-            ?: throw ScoreLoadException("The .mxl archive does not contain a MusicXML document.")
+            ?: throw ScoreLoadException("The .mxl archive does not contain a MusicXML document.", reason = ScoreLoadException.Reason.NOT_MUSICXML)
         return entries[rootPath]
             ?: throw ScoreLoadException("The .mxl archive refers to '$rootPath', which is missing.")
     }
@@ -82,7 +92,7 @@ object MusicXmlLoader {
                         if (n < 0) break
                         total += n
                         if (total > MAX_UNCOMPRESSED_BYTES) {
-                            throw ScoreLoadException("The .mxl archive is too large to open.")
+                            throw ScoreLoadException("The .mxl archive is too large to open.", reason = ScoreLoadException.Reason.TOO_LARGE)
                         }
                         out.write(buffer, 0, n)
                     }
@@ -94,7 +104,7 @@ object MusicXmlLoader {
         } catch (e: Exception) {
             throw ScoreLoadException("The .mxl archive could not be read: ${e.message}", e)
         }
-        if (result.isEmpty()) throw ScoreLoadException("The .mxl archive is empty.")
+        if (result.isEmpty()) throw ScoreLoadException("The .mxl archive is empty.", reason = ScoreLoadException.Reason.EMPTY)
         return result
     }
 

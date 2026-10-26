@@ -93,6 +93,11 @@ interface ScoreWebCallbacks {
     fun onWebError(message: String)
     fun onThumbnail(pngDataUrl: String)
     fun onAnnotationsChanged(json: String)
+
+    companion object {
+        /** [onWebError] message when the WebView's renderer died and the view was recreated. */
+        const val RENDERER_GONE = "renderer-gone"
+    }
 }
 
 /**
@@ -270,7 +275,7 @@ private class ScoreWebViewClient(
     // Large scores can push the renderer out of memory. Without this the whole app would crash.
     override fun onRenderProcessGone(view: WebView, detail: RenderProcessGoneDetail): Boolean {
         Log.w("ScoreView", "WebView renderer gone (crashed: ${detail.didCrash()}); recreating")
-        callbacks.onWebError("The score view stopped unexpectedly and was reloaded.")
+        callbacks.onWebError(ScoreWebCallbacks.RENDERER_GONE)
         onRendererGone()
         return true
     }

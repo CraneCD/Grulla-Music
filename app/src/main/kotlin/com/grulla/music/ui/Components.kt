@@ -11,6 +11,7 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.RowScope
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.shape.CircleShape
@@ -35,14 +36,19 @@ import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.semantics.ProgressBarRangeInfo
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.progressBarRangeInfo
 import androidx.compose.ui.semantics.role
 import androidx.compose.ui.semantics.selected
 import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.semantics.setProgress
 import androidx.compose.ui.semantics.stateDescription
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
+import com.grulla.music.R
 
 /** Pill toggle: neutral when off, indigo ("you") when on. */
 @Composable
@@ -64,7 +70,7 @@ fun GrullaChip(
         contentColor = if (selected) c.onIndigoTint else c.ink,
         border = BorderStroke(1.dp, if (selected) c.indigo else c.lineStrong),
         modifier = modifier
-            .height(36.dp)
+            .heightIn(min = 36.dp)
             .semantics {
                 role = Role.Switch
                 this.selected = selected
@@ -111,7 +117,7 @@ fun InkButton(text: String, onClick: () -> Unit, modifier: Modifier = Modifier, 
     val c = Grulla.colors
     Button(
         onClick = onClick,
-        modifier = modifier.height(48.dp),
+        modifier = modifier.heightIn(min = 48.dp),
         colors = ButtonDefaults.buttonColors(containerColor = c.ink, contentColor = c.paper),
         contentPadding = PaddingValues(horizontal = 22.dp),
     ) { ButtonContent(text, icon) }
@@ -123,7 +129,7 @@ fun CrownButton(text: String, onClick: () -> Unit, modifier: Modifier = Modifier
     val c = Grulla.colors
     Button(
         onClick = onClick,
-        modifier = modifier.height(48.dp),
+        modifier = modifier.heightIn(min = 48.dp),
         colors = ButtonDefaults.buttonColors(containerColor = c.crown, contentColor = c.onCrown),
     ) { ButtonContent(text, icon) }
 }
@@ -134,7 +140,7 @@ fun IndigoButton(text: String, onClick: () -> Unit, modifier: Modifier = Modifie
     val c = Grulla.colors
     Button(
         onClick = onClick,
-        modifier = modifier.height(48.dp),
+        modifier = modifier.heightIn(min = 48.dp),
         colors = ButtonDefaults.buttonColors(containerColor = c.indigo, contentColor = c.onIndigo),
     ) { Text(text, style = MaterialTheme.typography.labelLarge) }
 }
@@ -145,7 +151,7 @@ fun GhostButton(text: String, onClick: () -> Unit, modifier: Modifier = Modifier
     OutlinedButton(
         onClick = onClick,
         enabled = enabled,
-        modifier = modifier.height(48.dp),
+        modifier = modifier.heightIn(min = 48.dp),
         border = BorderStroke(1.dp, c.lineStrong),
         colors = ButtonDefaults.outlinedButtonColors(contentColor = c.ink),
         contentPadding = PaddingValues(horizontal = 18.dp),
@@ -195,11 +201,23 @@ fun ProgressTrack(
     val c = Grulla.colors
     var dragging by remember { mutableStateOf<Float?>(null) }
     val shown = (dragging ?: fraction).coerceIn(0f, 1f)
+    val label = stringResource(R.string.position_in_score)
     Canvas(
         modifier
             .fillMaxWidth()
             .height(28.dp)
-            .semantics { stateDescription = "${(shown * 100).toInt()}%" }
+            .semantics {
+                contentDescription = label
+                stateDescription = "${(shown * 100).toInt()}%"
+                progressBarRangeInfo = ProgressBarRangeInfo(shown, 0f..1f)
+                // TalkBack users seek by adjusting the value.
+                if (enabled) {
+                    setProgress { target ->
+                        onSeek(target.coerceIn(0f, 1f))
+                        true
+                    }
+                }
+            }
             .pointerInput(enabled) {
                 if (!enabled) return@pointerInput
                 detectTapGestures { onSeek((it.x / size.width).coerceIn(0f, 1f)) }

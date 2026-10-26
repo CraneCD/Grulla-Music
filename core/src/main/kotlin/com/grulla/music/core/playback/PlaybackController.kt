@@ -59,6 +59,7 @@ interface PlaybackListener {
     /** Count-in beat [beat] of [total] started; beat 0 means the count-in is over or cancelled. */
     fun onCountInBeat(beat: Int, total: Int)
 
+    /** Preparing or starting playback failed; [message] is the technical reason. */
     fun onPlaybackError(message: String) {}
 
     /** Playback went round the A–B loop once more. */
@@ -347,7 +348,7 @@ class PlaybackController(
             } catch (e: Exception) {
                 prepared = null
                 setTransport(Transport.STOPPED)
-                listener.onPlaybackError("Playback failed: ${e.message ?: e::class.simpleName}")
+                listener.onPlaybackError(e.message ?: e::class.simpleName ?: "error")
                 return@launch
             }
             prepared = run

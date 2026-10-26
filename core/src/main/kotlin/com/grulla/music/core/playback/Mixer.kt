@@ -17,6 +17,10 @@ data class MixerChannel(
     val program: Int? = null,
     /** Plays on the GM percussion channel (no instrument choice). */
     val percussion: Boolean = false,
+    /** The part's name and this track's staff (1-based) of [staves], for wording the label in the UI's language. */
+    val partName: String? = null,
+    val staff: Int = 1,
+    val staves: Int = 1,
 )
 
 /** Mute / solo, volume and instrument choices, keyed by MIDI track index. */
@@ -73,7 +77,10 @@ object Mixer {
             return parts.flatMap { part ->
                 (1..part.staves).map { staff ->
                     val index = track++
-                    MixerChannel(index, part.id, label(part, staff), midi.tracks[index].program(), midi.tracks[index].isPercussion())
+                    MixerChannel(
+                        index, part.id, label(part, staff), midi.tracks[index].program(), midi.tracks[index].isPercussion(),
+                        partName = part.name, staff = staff, staves = part.staves,
+                    )
                 }
             }.filter { it.trackIndex in musicTracks }
         }

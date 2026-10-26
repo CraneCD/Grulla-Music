@@ -1,13 +1,12 @@
 package com.grulla.music.ui
 
 import android.graphics.BitmapFactory
+import android.text.format.DateUtils
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
-import android.text.format.DateUtils
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.horizontalScroll
-import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -19,12 +18,14 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.CircularProgressIndicator
@@ -56,12 +57,16 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.ImageBitmap
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.platform.LocalResources
+import androidx.compose.ui.res.pluralStringResource
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.semantics.heading
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import com.grulla.music.R
 import com.grulla.music.core.library.Library
 import com.grulla.music.core.library.LibraryEntry
 import com.grulla.music.core.library.LibrarySort
@@ -108,11 +113,14 @@ fun LibraryScreen(
     var setlistId by rememberSaveable { mutableStateOf<String?>(null) }
     val snackbar = remember { SnackbarHostState() }
     val scope = rememberCoroutineScope()
+    val resources = LocalResources.current
     val pickFolder = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocumentTree()) { tree ->
         if (tree != null) {
             repository.importFolder(tree) { count ->
                 scope.launch {
-                    snackbar.showSnackbar(if (count == 0) "No MusicXML scores in that folder." else "Added $count scores from the folder.")
+                    snackbar.showSnackbar(
+                        if (count == 0) resources.getString(R.string.import_none) else resources.getQuantityString(R.plurals.import_added, count, count),
+                    )
                 }
             }
         }
@@ -180,7 +188,7 @@ fun LibraryContent(
                 Modifier
                     .fillMaxWidth()
                     .statusBarsPadding()
-                    .height(64.dp)
+                    .heightIn(min = 64.dp)
                     .padding(start = 20.dp, end = 8.dp),
                 verticalAlignment = Alignment.CenterVertically,
                 horizontalArrangement = Arrangement.spacedBy(10.dp),
@@ -193,7 +201,7 @@ fun LibraryContent(
                         .weight(1f)
                         .semantics { heading() },
                 )
-                IconButton(onClick = actions::openSettings) { Icon(AppIcons.Settings, contentDescription = "Settings") }
+                IconButton(onClick = actions::openSettings) { Icon(AppIcons.Settings, contentDescription = stringResource(R.string.settings)) }
             }
         },
         floatingActionButton = {
@@ -204,7 +212,7 @@ fun LibraryContent(
                     contentColor = c.paper,
                     shape = RoundedCornerShape(28.dp),
                     icon = { Icon(AppIcons.FolderOpen, contentDescription = null) },
-                    text = { Text("Open score", style = MaterialTheme.typography.labelLarge) },
+                    text = { Text(stringResource(R.string.open_score), style = MaterialTheme.typography.labelLarge) },
                 )
             }
         },
@@ -223,7 +231,7 @@ fun LibraryContent(
         ) {
             item {
                 Text(
-                    "Your scores",
+                    stringResource(R.string.your_scores),
                     style = MaterialTheme.typography.displaySmall,
                     modifier = Modifier
                         .padding(bottom = 2.dp)
@@ -236,7 +244,7 @@ fun LibraryContent(
                 item {
                     Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
                         CircularProgressIndicator(Modifier.size(16.dp), strokeWidth = 2.dp, color = c.indigo)
-                        Text("Importing… $importing scores found", style = MaterialTheme.typography.bodyMedium, color = c.graphite)
+                        Text(pluralStringResource(R.plurals.importing_found, importing, importing), style = MaterialTheme.typography.bodyMedium, color = c.graphite)
                     }
                 }
             }
@@ -245,7 +253,7 @@ fun LibraryContent(
             }
             if (continueEntry != null) {
                 item { ContinueCard(continueEntry, thumbnail, onOpen = { actions.open(continueEntry) }) }
-                if (shown.size > 1) item { Overline("Recent", Modifier.padding(top = 10.dp)) }
+                if (shown.size > 1) item { Overline(stringResource(R.string.recent), Modifier.padding(top = 10.dp)) }
             }
             val rows = if (continueEntry != null) shown.filter { it.id != continueEntry.id } else shown
             items(rows, key = { it.id }) { entry ->
@@ -262,9 +270,9 @@ fun LibraryContent(
                 item {
                     Text(
                         when {
-                            view.query.isNotBlank() -> "No scores match “${view.query.trim()}”."
-                            setlist != null -> "This setlist is empty. Add scores from their ⋮ menu."
-                            else -> "No scores."
+                            view.query.isNotBlank() -> stringResource(R.string.no_match, view.query.trim())
+                            setlist != null -> stringResource(R.string.setlist_empty)
+                            else -> stringResource(R.string.no_scores)
                         },
                         style = MaterialTheme.typography.bodyMedium,
                         color = c.graphite,
@@ -275,10 +283,10 @@ fun LibraryContent(
             item {
                 FlowRow(horizontalArrangement = Arrangement.spacedBy(4.dp), modifier = Modifier.padding(top = 4.dp)) {
                     TextButton(onClick = actions::importFolder, enabled = importing == null) {
-                        Text("Import a folder", color = c.indigo, style = MaterialTheme.typography.labelLarge)
+                        Text(stringResource(R.string.import_folder), color = c.indigo, style = MaterialTheme.typography.labelLarge)
                     }
                     TextButton(onClick = actions::openSample) {
-                        Text("Open the sample score", color = c.indigo, style = MaterialTheme.typography.labelLarge)
+                        Text(stringResource(R.string.open_sample), color = c.indigo, style = MaterialTheme.typography.labelLarge)
                     }
                 }
             }
@@ -287,7 +295,7 @@ fun LibraryContent(
 
     naming?.let { request ->
         NameDialog(
-            title = if (request is NameRequest.Rename) "Rename setlist" else "New setlist",
+            title = stringResource(if (request is NameRequest.Rename) R.string.rename_setlist else R.string.new_setlist),
             initial = (request as? NameRequest.Rename)?.setlist?.name ?: "",
             onDone = { name ->
                 naming = null
@@ -316,11 +324,11 @@ private fun SearchField(query: String, onQuery: (String) -> Unit) {
         value = query,
         onValueChange = onQuery,
         modifier = Modifier.fillMaxWidth(),
-        placeholder = { Text("Search titles and composers") },
+        placeholder = { Text(stringResource(R.string.search_hint)) },
         leadingIcon = { Icon(AppIcons.Search, contentDescription = null) },
         trailingIcon = {
             if (query.isNotEmpty()) {
-                IconButton(onClick = { onQuery("") }) { Icon(AppIcons.Close, contentDescription = "Clear search") }
+                IconButton(onClick = { onQuery("") }) { Icon(AppIcons.Close, contentDescription = stringResource(R.string.clear_search)) }
             }
         },
         singleLine = true,
@@ -346,15 +354,15 @@ private fun ViewChips(library: Library, view: LibraryView, onView: (LibraryView)
                 .horizontalScroll(rememberScrollState()),
             horizontalArrangement = Arrangement.spacedBy(8.dp),
         ) {
-            GrullaChip("All scores", view.setlistId == null, onClick = { onView(view.copy(setlistId = null)) })
+            GrullaChip(stringResource(R.string.all_scores), view.setlistId == null, onClick = { onView(view.copy(setlistId = null)) })
             for (setlist in library.setlists) {
                 GrullaChip(setlist.name, view.setlistId == setlist.id, onClick = { onView(view.copy(setlistId = setlist.id)) }, leadingIcon = AppIcons.Setlist)
             }
-            GrullaChip("Setlist", selected = false, onClick = onNewSetlist, leadingIcon = AppIcons.Add)
+            GrullaChip(stringResource(R.string.setlist), selected = false, onClick = onNewSetlist, leadingIcon = AppIcons.Add)
         }
         if (view.setlistId == null) {
             Box {
-                IconButton(onClick = { sortMenu = true }) { Icon(AppIcons.Sort, contentDescription = "Sort: ${sortName(view.sort)}") }
+                IconButton(onClick = { sortMenu = true }) { Icon(AppIcons.Sort, contentDescription = stringResource(R.string.sort_by, sortName(view.sort))) }
                 DropdownMenu(expanded = sortMenu, onDismissRequest = { sortMenu = false }, containerColor = c.sheet) {
                     for (sort in LibrarySort.entries) {
                         DropdownMenuItem(
@@ -372,12 +380,15 @@ private fun ViewChips(library: Library, view: LibraryView, onView: (LibraryView)
     }
 }
 
-private fun sortName(sort: LibrarySort) = when (sort) {
-    LibrarySort.RECENT -> "Recently opened"
-    LibrarySort.TITLE -> "Title"
-    LibrarySort.COMPOSER -> "Composer"
-    LibrarySort.ADDED -> "Recently added"
-}
+@Composable
+private fun sortName(sort: LibrarySort) = stringResource(
+    when (sort) {
+        LibrarySort.RECENT -> R.string.sort_recent
+        LibrarySort.TITLE -> R.string.sort_title
+        LibrarySort.COMPOSER -> R.string.sort_composer
+        LibrarySort.ADDED -> R.string.sort_added
+    },
+)
 
 @Composable
 private fun SetlistHeader(setlist: Setlist, count: Int, actions: LibraryActions, onRename: () -> Unit) {
@@ -386,17 +397,17 @@ private fun SetlistHeader(setlist: Setlist, count: Int, actions: LibraryActions,
     Row(verticalAlignment = Alignment.CenterVertically) {
         Column(Modifier.weight(1f)) {
             Text(setlist.name, style = MaterialTheme.typography.headlineSmall, modifier = Modifier.semantics { heading() })
-            Text(if (count == 1) "1 score" else "$count scores", style = MaterialTheme.typography.bodySmall, color = c.graphite)
+            Text(pluralStringResource(R.plurals.score_count, count, count), style = MaterialTheme.typography.bodySmall, color = c.graphite)
         }
         Box {
-            IconButton(onClick = { menu = true }) { Icon(AppIcons.More, contentDescription = "More for ${setlist.name}") }
+            IconButton(onClick = { menu = true }) { Icon(AppIcons.More, contentDescription = stringResource(R.string.more_for, setlist.name)) }
             DropdownMenu(expanded = menu, onDismissRequest = { menu = false }, containerColor = c.sheet) {
-                DropdownMenuItem(text = { Text("Rename") }, onClick = {
+                DropdownMenuItem(text = { Text(stringResource(R.string.rename)) }, onClick = {
                     menu = false
                     onRename()
                 })
                 DropdownMenuItem(
-                    text = { Text("Delete setlist") },
+                    text = { Text(stringResource(R.string.delete_setlist)) },
                     leadingIcon = { Icon(AppIcons.Delete, contentDescription = null) },
                     onClick = {
                         menu = false
@@ -417,10 +428,10 @@ private fun NameDialog(title: String, initial: String, onDone: (String) -> Unit,
         containerColor = c.sheet,
         title = { Text(title) },
         text = {
-            OutlinedTextField(value = name, onValueChange = { name = it }, singleLine = true, placeholder = { Text("e.g. Spring recital") })
+            OutlinedTextField(value = name, onValueChange = { name = it }, singleLine = true, placeholder = { Text(stringResource(R.string.setlist_name_hint)) })
         },
-        confirmButton = { TextButton(onClick = { onDone(name) }, enabled = name.isNotBlank()) { Text("Save") } },
-        dismissButton = { TextButton(onClick = onDismiss) { Text("Cancel") } },
+        confirmButton = { TextButton(onClick = { onDone(name) }, enabled = name.isNotBlank()) { Text(stringResource(R.string.save)) } },
+        dismissButton = { TextButton(onClick = onDismiss) { Text(stringResource(R.string.cancel)) } },
     )
 }
 
@@ -432,7 +443,7 @@ private fun ContinueCard(entry: LibraryEntry, thumbnail: @Composable (LibraryEnt
             thumbnail(entry, Modifier.fillMaxWidth().height(148.dp))
             HorizontalDivider(color = c.line)
             Column(Modifier.padding(start = 18.dp, end = 18.dp, top = 16.dp, bottom = 18.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
-                Overline("Continue where you stopped")
+                Overline(stringResource(R.string.continue_where_stopped))
                 Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
                     Text(entry.title, style = MaterialTheme.typography.headlineSmall, maxLines = 2, overflow = TextOverflow.Ellipsis)
                     entry.composer?.let { Text(it, style = MaterialTheme.typography.bodyMedium, color = c.graphite) }
@@ -443,7 +454,7 @@ private fun ContinueCard(entry: LibraryEntry, thumbnail: @Composable (LibraryEnt
                         tags.forEach { (text, you) -> Tag(text, you) }
                     }
                 }
-                CrownButton(if (entry.settings.lastPositionMs > 1000) "Continue" else "Open", onClick = onOpen, modifier = Modifier.fillMaxWidth())
+                CrownButton(stringResource(if (entry.settings.lastPositionMs > 1000) R.string.continue_ else R.string.open), onClick = onOpen, modifier = Modifier.fillMaxWidth())
             }
         }
     }
@@ -473,10 +484,13 @@ private fun LibraryRow(
                 Text(entry.title, style = MaterialTheme.typography.titleLarge, maxLines = 1, overflow = TextOverflow.Ellipsis)
                 entry.composer?.let { Text(it, style = MaterialTheme.typography.bodyMedium, color = c.graphite, maxLines = 1) }
                 val opened = if (entry.lastOpened > 0) {
-                    "Opened " + DateUtils.getRelativeTimeSpanString(entry.lastOpened, System.currentTimeMillis(), DateUtils.MINUTE_IN_MILLIS)
-                        .toString().replaceFirstChar { it.lowercase() }
+                    stringResource(
+                        R.string.opened_when,
+                        DateUtils.getRelativeTimeSpanString(entry.lastOpened, System.currentTimeMillis(), DateUtils.MINUTE_IN_MILLIS)
+                            .toString().replaceFirstChar { it.lowercase() },
+                    )
                 } else {
-                    "Not opened yet"
+                    stringResource(R.string.not_opened_yet)
                 }
                 val extra = settingsTags(entry).firstOrNull()?.first
                 Text(
@@ -488,24 +502,24 @@ private fun LibraryRow(
                 )
             }
             Box {
-                IconButton(onClick = { menu = true }) { Icon(AppIcons.More, contentDescription = "More for ${entry.title}", tint = c.graphite) }
+                IconButton(onClick = { menu = true }) { Icon(AppIcons.More, contentDescription = stringResource(R.string.more_for, entry.title), tint = c.graphite) }
                 DropdownMenu(expanded = menu, onDismissRequest = { menu = false }, containerColor = c.sheet) {
                     if (inSetlist != null) {
-                        DropdownMenuItem(text = { Text("Move up") }, onClick = {
+                        DropdownMenuItem(text = { Text(stringResource(R.string.move_up)) }, onClick = {
                             menu = false
                             actions.moveInSetlist(inSetlist.id, entry, -1)
                         })
-                        DropdownMenuItem(text = { Text("Move down") }, onClick = {
+                        DropdownMenuItem(text = { Text(stringResource(R.string.move_down)) }, onClick = {
                             menu = false
                             actions.moveInSetlist(inSetlist.id, entry, 1)
                         })
-                        DropdownMenuItem(text = { Text("Remove from “${inSetlist.name}”") }, onClick = {
+                        DropdownMenuItem(text = { Text(stringResource(R.string.remove_from_setlist, inSetlist.name)) }, onClick = {
                             menu = false
                             actions.removeFromSetlist(inSetlist.id, entry)
                         })
                     } else {
                         DropdownMenuItem(
-                            text = { Text("Add to setlist") },
+                            text = { Text(stringResource(R.string.add_to_setlist)) },
                             leadingIcon = { Icon(AppIcons.Setlist, contentDescription = null) },
                             onClick = {
                                 menu = false
@@ -514,7 +528,7 @@ private fun LibraryRow(
                         )
                     }
                     DropdownMenuItem(
-                        text = { Text("Remove from library") },
+                        text = { Text(stringResource(R.string.remove_from_library)) },
                         leadingIcon = { Icon(AppIcons.Delete, contentDescription = null) },
                         onClick = {
                             menu = false
@@ -527,7 +541,7 @@ private fun LibraryRow(
                         val already = entry.id in setlist.entryIds
                         DropdownMenuItem(
                             text = { Text(setlist.name) },
-                            trailingIcon = { if (already) Icon(AppIcons.Check, contentDescription = "Already in it", tint = c.indigo) },
+                            trailingIcon = { if (already) Icon(AppIcons.Check, contentDescription = stringResource(R.string.already_in_it), tint = c.indigo) },
                             enabled = !already,
                             onClick = {
                                 addMenu = false
@@ -536,7 +550,7 @@ private fun LibraryRow(
                         )
                     }
                     DropdownMenuItem(
-                        text = { Text("New setlist…") },
+                        text = { Text(stringResource(R.string.new_setlist_ellipsis)) },
                         leadingIcon = { Icon(AppIcons.Add, contentDescription = null) },
                         onClick = {
                             addMenu = false
@@ -550,14 +564,18 @@ private fun LibraryRow(
 }
 
 /** Short descriptions of what was saved for a score; the Boolean marks "you" (indigo) tags. */
+@Composable
 private fun settingsTags(entry: LibraryEntry): List<Pair<String, Boolean>> {
     val s = entry.settings
     return buildList {
-        if (s.lastPositionMs > 1000) add("At ${formatTime(s.lastPositionMs)}" to false)
-        if (s.loopStartMs != null) add((if (s.loopEnabled) "Loop on" else "Loop set") to true)
-        if (s.tempoPercent != 100) add("Tempo ${s.tempoPercent}%" to false)
-        if (s.metronome) add("Metronome" to false)
-        if (s.mutedTracks.isNotEmpty() || s.soloedTracks.isNotEmpty()) add("Custom mix" to true)
+        if (s.lastPositionMs > 1000) add(stringResource(R.string.tag_at, formatTime(s.lastPositionMs)) to false)
+        if (s.loopStartMs != null) add(stringResource(if (s.loopEnabled) R.string.tag_loop_on else R.string.tag_loop_set) to true)
+        if (s.tempoPercent != 100) add(stringResource(R.string.tag_tempo, s.tempoPercent) to false)
+        if (s.transpose != 0) add(stringResource(R.string.tag_transposed, "%+d".format(s.transpose)) to false)
+        if (s.metronome) add(stringResource(R.string.metronome) to false)
+        if (s.mutedTracks.isNotEmpty() || s.soloedTracks.isNotEmpty() || s.trackVolumes.isNotEmpty() || s.trackPrograms.isNotEmpty()) {
+            add(stringResource(R.string.tag_custom_mix) to true)
+        }
     }
 }
 
@@ -573,19 +591,21 @@ private fun EmptyLibrary(modifier: Modifier, actions: LibraryActions, importing:
         horizontalAlignment = Alignment.CenterHorizontally,
     ) {
         CraneMark(size = 88.dp)
-        Text("No scores yet", style = MaterialTheme.typography.headlineSmall, modifier = Modifier.padding(top = 20.dp))
+        Text(stringResource(R.string.no_scores_yet), style = MaterialTheme.typography.headlineSmall, modifier = Modifier.padding(top = 20.dp))
         Text(
-            "Open a MusicXML file (.mxl, .musicxml or .xml), or import a whole folder. Your scores appear here and remember their settings.",
+            stringResource(R.string.empty_library_explained),
             style = MaterialTheme.typography.bodyMedium,
             color = c.graphite,
             textAlign = TextAlign.Center,
             modifier = Modifier.padding(top = 8.dp, bottom = 24.dp),
         )
-        InkButton("Open score", onClick = actions::openFile, icon = AppIcons.FolderOpen)
+        InkButton(stringResource(R.string.open_score), onClick = actions::openFile, icon = AppIcons.FolderOpen)
         Spacer(Modifier.height(10.dp))
-        GhostButton(if (importing != null) "Importing… $importing found" else "Import a folder", onClick = actions::importFolder, enabled = importing == null)
+        GhostButton(
+            if (importing != null) pluralStringResource(R.plurals.importing_found, importing, importing) else stringResource(R.string.import_folder),
+            onClick = actions::importFolder, enabled = importing == null)
         Spacer(Modifier.height(10.dp))
-        GhostButton("Try the sample", onClick = actions::openSample)
+        GhostButton(stringResource(R.string.try_sample), onClick = actions::openSample)
     }
 }
 

@@ -3,11 +3,11 @@ package com.grulla.music.core.listen
 import com.grulla.music.core.Fixtures
 import com.grulla.music.core.midi.MidiReader
 import com.grulla.music.core.timemap.Timemap
-import kotlinx.serialization.json.Json
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFalse
 import kotlin.test.assertTrue
+import kotlinx.serialization.json.Json
 
 class FollowControllerTest {
     private val timemap = Timemap.parse(Fixtures.text("${Fixtures.CHRONO}.timemap.json"))
