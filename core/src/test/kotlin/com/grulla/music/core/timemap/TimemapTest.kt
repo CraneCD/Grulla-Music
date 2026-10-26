@@ -39,6 +39,21 @@ class TimemapTest {
     }
 
     @Test
+    fun `a repeated measure seeks to its first pass`() {
+        val repeated = Timemap(
+            listOf(
+                TimemapEntry(tstamp = 0.0, measureOn = "a"),
+                TimemapEntry(tstamp = 1000.0, measureOn = "b"),
+                TimemapEntry(tstamp = 2000.0, measureOn = "a"),
+                TimemapEntry(tstamp = 3000.0, measureOn = "b"),
+            ),
+        )
+        assertEquals(1000.0, repeated.measureStartMs("b"))
+        assertEquals(4, repeated.measures.size)
+        assertEquals(2000.0, repeated.measureAt(2500.0)?.timeMs)
+    }
+
+    @Test
     fun `reports the tempo in effect`() {
         val timemap = Timemap.parse(sample)
         assertEquals(120.0, timemap.tempoAt(0.0))

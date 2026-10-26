@@ -32,7 +32,13 @@ class Timemap(entries: List<TimemapEntry>) {
         entry.measureOn?.let { MeasureStart(it, entry.tstamp, entry.qstamp) }
     }
 
-    private val measureById: Map<String, MeasureStart> = measures.associateBy { it.id }
+    /**
+     * Verovio expands repeats, so a measure inside a repeat starts more than once.
+     * Seeking by measure goes to its first pass.
+     */
+    private val measureById: Map<String, MeasureStart> = LinkedHashMap<String, MeasureStart>().apply {
+        for (measure in measures) putIfAbsent(measure.id, measure)
+    }
 
     /** Time of the last event (normally the release of the final notes). */
     val durationMs: Double = this.entries.lastOrNull()?.tstamp ?: 0.0

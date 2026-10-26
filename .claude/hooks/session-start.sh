@@ -51,8 +51,8 @@ if [ ! -x "$SDKMANAGER" ]; then
   done
   if [ -z "$downloaded" ]; then
     log "WARNING: could not download the Android command-line tools from dl.google.com."
-    log "WARNING: allow dl.google.com in the environment's network settings; until then only"
-    log "WARNING: the :core module can be built (see README 'Building without the Android SDK')."
+    log "WARNING: allow dl.google.com (Android SDK and Google Maven) in the environment's"
+    log "WARNING: network settings; the Gradle build cannot run without it."
     rm -rf "$tmp"
     exit 0
   fi
