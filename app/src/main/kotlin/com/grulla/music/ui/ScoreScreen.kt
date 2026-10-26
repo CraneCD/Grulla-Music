@@ -66,7 +66,7 @@ interface TransportActions {
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun ScoreScreen(viewModel: ScoreViewModel, onOpenFile: () -> Unit) {
+fun ScoreScreen(viewModel: ScoreViewModel, onOpenFile: () -> Unit, onOpenSettings: () -> Unit) {
     val ui by viewModel.ui.collectAsStateWithLifecycle()
     val playback by viewModel.playbackState.collectAsStateWithLifecycle()
     val snackbar = remember { SnackbarHostState() }
@@ -108,6 +108,9 @@ fun ScoreScreen(viewModel: ScoreViewModel, onOpenFile: () -> Unit) {
                     }
                     IconButton(onClick = viewModel::zoomIn) {
                         Icon(AppIcons.ZoomIn, contentDescription = "Zoom in")
+                    }
+                    IconButton(onClick = onOpenSettings) {
+                        Icon(AppIcons.Settings, contentDescription = "Settings")
                     }
                 },
             )

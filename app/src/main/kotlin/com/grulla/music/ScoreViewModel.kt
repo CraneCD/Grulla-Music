@@ -16,7 +16,6 @@ import com.grulla.music.core.score.LoadedScore
 import com.grulla.music.core.score.PartListParser
 import com.grulla.music.core.score.RenderedScore
 import com.grulla.music.core.timemap.Timemap
-import com.grulla.music.playback.MediaPlayerMidiPlayer
 import com.grulla.music.playback.awaitFrameNanos
 import com.grulla.music.score.LayoutMode
 import com.grulla.music.score.ScoreFiles
@@ -64,7 +63,7 @@ class ScoreViewModel(application: Application) :
     val ui: StateFlow<ScoreUiState> = mutableUi.asStateFlow()
 
     private val playback = PlaybackController(
-        player = MediaPlayerMidiPlayer(application),
+        player = (application as GrullaApp).audio.player,
         scope = viewModelScope,
         awaitFrameNanos = ::awaitFrameNanos,
         listener = this,

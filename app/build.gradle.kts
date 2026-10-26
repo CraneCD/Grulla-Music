@@ -1,12 +1,40 @@
+import java.net.URI
+import java.security.MessageDigest
+
 plugins {
     // AGP 9 compiles Kotlin itself (built-in Kotlin), so no separate kotlin-android plugin.
     alias(libs.plugins.android.application)
     alias(libs.plugins.kotlin.compose)
 }
 
+// Default SoundFont: FluidR3 Mono GM (MIT), as distributed with MuseScore 2.3.2.
+// Downloaded at build time (checksum pinned) instead of being stored in git.
+val soundFontUrl = "https://raw.githubusercontent.com/musescore/MuseScore/2.3.2/share/sound/FluidR3Mono_GM.sf3"
+val soundFontSha256 = "cfcd66d89e8386823400eca64934b14fbea7bf48ba1f00d21189af1262794ec2"
+val generatedAssets = layout.buildDirectory.dir("generated/soundfont-assets")
+
+val downloadSoundFont = tasks.register("downloadSoundFont") {
+    description = "Downloads the default SoundFont into the generated assets."
+    val target = generatedAssets.map { it.file("soundfonts/FluidR3Mono_GM.sf3") }
+    outputs.file(target)
+    doLast {
+        fun sha256(file: File) = MessageDigest.getInstance("SHA-256").digest(file.readBytes()).joinToString("") { "%02x".format(it) }
+        val file = target.get().asFile
+        if (file.isFile && sha256(file) == soundFontSha256) return@doLast
+        file.parentFile.mkdirs()
+        val partial = File(file.path + ".part")
+        URI(soundFontUrl).toURL().openStream().use { input -> partial.outputStream().use { input.copyTo(it) } }
+        val actual = sha256(partial)
+        check(actual == soundFontSha256) { "SoundFont download checksum mismatch: $actual" }
+        partial.renameTo(file)
+    }
+}
+
 android {
     namespace = "com.grulla.music"
     compileSdk = 37
+    // Same NDK as :synth; AGP uses it to strip debug symbols from the native libraries.
+    ndkVersion = "29.0.14206865"
 
     defaultConfig {
         applicationId = "com.grulla.music"
@@ -30,10 +58,22 @@ android {
     buildFeatures {
         compose = true
     }
+
+    sourceSets {
+        getByName("main") {
+            assets.directories.add(generatedAssets.get().asFile.absolutePath)
+        }
+    }
+
+    androidResources {
+        // The SoundFont is already compressed (Ogg Vorbis samples) and is read with openFd().
+        noCompress += "sf3"
+    }
 }
 
 dependencies {
     implementation(project(":core"))
+    implementation(project(":synth"))
 
     implementation(platform(libs.compose.bom))
     implementation(libs.compose.ui)
@@ -49,3 +89,5 @@ dependencies {
     implementation(libs.androidx.webkit)
     implementation(libs.kotlinx.coroutines.android)
 }
+
+tasks.named("preBuild") { dependsOn(downloadSoundFont) }

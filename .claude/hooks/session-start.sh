@@ -13,7 +13,7 @@ fi
 PROJECT_DIR="${CLAUDE_PROJECT_DIR:-$(cd "$(dirname "$0")/../.." && pwd)}"
 ANDROID_SDK_DIR="${ANDROID_SDK_DIR:-/opt/android-sdk}"
 # Keep in sync with app/build.gradle.kts (compileSdk) and README.md.
-SDK_PACKAGES=("platforms;android-37.0" "build-tools;36.0.0" "platform-tools")
+SDK_PACKAGES=("platforms;android-37.0" "build-tools;36.0.0" "platform-tools" "ndk;29.0.14206865" "cmake;3.31.6")
 CMDLINE_TOOLS_ZIPS=(
   "commandlinetools-linux-16111833_latest.zip"
   "commandlinetools-linux-13114758_latest.zip"
@@ -36,6 +36,13 @@ if [ ! -x "$JDK17_HOME/bin/javac" ]; then
 fi
 export JAVA_HOME="$JDK17_HOME"
 persist_env JAVA_HOME "$JDK17_HOME"
+
+# FluidSynth headers/library for the host tests of the native synth (tools/test-synth-native.sh).
+if ! pkg-config --exists fluidsynth 2>/dev/null; then
+  log "Installing libfluidsynth-dev"
+  apt-get update -qq
+  DEBIAN_FRONTEND=noninteractive apt-get install -y -qq libfluidsynth-dev pkg-config >/dev/null || log "WARNING: libfluidsynth-dev not installed"
+fi
 
 # --- Android SDK --------------------------------------------------------------
 SDKMANAGER="$ANDROID_SDK_DIR/cmdline-tools/latest/bin/sdkmanager"

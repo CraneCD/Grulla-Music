@@ -23,4 +23,5 @@ dependencyResolutionManagement {
 rootProject.name = "GrullaMusic"
 
 include(":core")
+include(":synth")
 include(":app")
