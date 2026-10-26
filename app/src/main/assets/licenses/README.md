@@ -12,6 +12,7 @@
 | Opus | `lib/<abi>/libopus.so` | BSD-3-Clause | `opus-COPYING.txt` |
 | PCRE 8.x | `lib/<abi>/libpcre.so` | BSD-3-Clause | `pcre-LICENCE.txt` |
 | Oboe | `lib/<abi>/liboboe.so` | Apache-2.0 | `oboe-LICENSE.txt` |
+| LLVM libc++ (from the NDK) | `lib/<abi>/libc++_shared.so` | Apache-2.0 WITH LLVM-exception | `oboe-LICENSE.txt` (Apache-2.0 text) |
 | FluidR3 Mono GM SoundFont | `assets/soundfonts/FluidR3Mono_GM.sf3` (downloaded at build time) | MIT | `FluidR3Mono-License.md` |
 
 The native libraries are the unmodified binaries of the FluidSynth project's

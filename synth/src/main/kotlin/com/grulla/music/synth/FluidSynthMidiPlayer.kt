@@ -99,7 +99,8 @@ class FluidSynthMidiPlayer private constructor(private var handle: Long) : MidiP
             val error = arrayOfNulls<String>(1)
             val handle = try {
                 NativeSynth.nativeCreate(error)
-            } catch (e: UnsatisfiedLinkError) {
+            } catch (e: LinkageError) {
+                // UnsatisfiedLinkError, or ExceptionInInitializerError from NativeSynth's loadLibrary.
                 return Result.failure(IllegalStateException("The FluidSynth library could not be loaded", e))
             }
             if (handle == 0L) return Result.failure(IllegalStateException(error[0] ?: "FluidSynth could not start"))
