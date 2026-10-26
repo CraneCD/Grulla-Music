@@ -1,0 +1,96 @@
+:root {
+  --page-bg: #ffffff;
+  --gap-bg: #e9e7e2;
+  --playing: #d9480f;
+  --cursor: rgba(255, 166, 0, 0.22);
+  --cursor-edge: rgba(217, 72, 15, 0.55);
+}
+
+html, body {
+  margin: 0;
+  padding: 0;
+  background: var(--gap-bg);
+  -webkit-tap-highlight-color: transparent;
+  -webkit-user-select: none;
+  user-select: none;
+  overflow-x: hidden;
+}
+
+#wrap {
+  position: relative;
+  transform-origin: 0 0;
+}
+
+.page {
+  background: var(--page-bg);
+}
+
+.page + .page {
+  margin-top: 8px;
+}
+
+.page svg {
+  display: block;
+  margin: 0 auto;
+}
+
+/* Page mode: one page at a time, filling the viewport. */
+body.mode-page .page {
+  min-height: 100vh;
+}
+
+/* Notes that are currently sounding. Verovio draws with currentColor and fill attributes. */
+.playing {
+  color: var(--playing);
+  fill: var(--playing);
+}
+
+.playing path {
+  stroke: var(--playing);
+}
+
+#cursor {
+  position: absolute;
+  pointer-events: none;
+  background: var(--cursor);
+  border-left: 2px solid var(--cursor-edge);
+  border-radius: 3px;
+  transition: left 90ms linear, top 160ms ease-out, height 160ms ease-out;
+}
+
+#cursor.jump {
+  transition: none;
+}
+
+#cursor[hidden] {
+  display: none;
+}
+
+/* Count-in: large beat number at the top of the screen. */
+#count-in {
+  position: fixed;
+  top: 16px;
+  left: 50%;
+  transform: translateX(-50%);
+  min-width: 72px;
+  padding: 4px 18px;
+  border-radius: 36px;
+  background: rgba(32, 32, 32, 0.78);
+  color: #fff;
+  font: 700 48px/1.2 system-ui, sans-serif;
+  text-align: center;
+  pointer-events: none;
+}
+
+#count-in[hidden] {
+  display: none;
+}
+
+#count-in.beat {
+  animation: beat 0.3s ease-out;
+}
+
+@keyframes beat {
+  from { transform: translateX(-50%) scale(1.25); background: rgba(217, 72, 15, 0.9); }
+  to { transform: translateX(-50%) scale(1); }
+}
