@@ -13,17 +13,10 @@
 | M6 | Smoother on the music stand: the score view stays alive; Verovio in a Web Worker with the first page early; Bluetooth page-turn pedals and early page turns; two-page spreads on tablets, a one-row dock in landscape, tabletop posture; silent scrolling at the tempo |
 | M7 | Practice coach: speed trainer; Wait for me (the accompaniment waits for you); chord checking in Follow me; practice log with trouble bars |
 | M8 | Score tools: transpose and concert pitch; instrument and volume per part; annotations (pencil, fingerings, breath marks); library search, sorting, setlists and folder import |
-| M9 | Release: English and Spanish (per-app language); TalkBack labels and headings, text up to 200 %, 48 dp targets; R8, signing config, App Bundle with ABI splits; targetSdk 37; Play listing and privacy policy (`docs/play-store`, `docs/PRIVACY.md`) |
+| M9 | Release: MIT license for the app's code; English and Spanish (per-app language); TalkBack labels and headings, text up to 200 %, 48 dp targets; R8, signing config, App Bundle with ABI splits; targetSdk 37; Play listing and privacy policy (`docs/play-store`, `docs/PRIVACY.md`) |
 
 M1–M5 and the design have been verified on a device; M6–M9 are covered by the unit,
 screenshot, native and browser tests and wait for a device run.
-
-## Open decision
-
-- **License for the app's own code.** Everything bundled is compatible with either choice
-  (Verovio and FluidSynth are separate LGPL libraries): a permissive license (MIT or
-  Apache-2.0), a copyleft one (GPL-3.0 or MPL-2.0), or none ("all rights reserved") for a
-  closed app.
 
 ## To publish on Google Play
 

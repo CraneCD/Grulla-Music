@@ -319,4 +319,6 @@ The environment's network access must allow `dl.google.com` and `github.com`.
   dedicated to the public domain (CC0 1.0).
 - **Test fixture:** `chrono-trigger-04-peaceful-days.mxl` is a fan arrangement of copyrighted
   game music. It is used only as a test fixture and is not packaged in the app.
-- **The app's own code** does not have a license yet (to be chosen; see the roadmap).
+- **The app's own code** is under the [MIT License](LICENSE). This covers the code and
+  assets written for this project, not the third-party components above (each keeps its own
+  license) and not the test fixture `chrono-trigger-04-peaceful-days.mxl`.

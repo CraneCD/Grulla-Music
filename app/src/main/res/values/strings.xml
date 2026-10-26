@@ -81,6 +81,7 @@
     <string name="last_7_days">Last 7 days</string>
     <string name="less">Less: %1$s</string>
     <string name="library">Library</string>
+    <string name="license_app">Grulla Music is open source under the MIT License.</string>
     <string name="listen_hearing">Hearing %1$s</string>
     <string name="listen_play">Play</string>
     <string name="listen_play_every_note">Play every note</string>

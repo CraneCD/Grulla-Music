@@ -226,6 +226,11 @@ fun SettingsContent(
                     color = c.graphite,
                 )
                 Text(
+                    stringResource(R.string.license_app),
+                    style = MaterialTheme.typography.bodySmall,
+                    color = c.graphite,
+                )
+                Text(
                     stringResource(R.string.about_libraries),
                     style = MaterialTheme.typography.bodySmall,
                     color = c.graphite,

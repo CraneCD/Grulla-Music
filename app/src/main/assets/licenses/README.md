@@ -2,6 +2,7 @@
 
 | Component | Where | License | Text |
 |---|---|---|---|
+| Grulla Music (the app's own code) | the app | MIT | `Grulla-Music-MIT.txt` |
 | Verovio 6.3.0 | `assets/verovio/` | LGPL-3.0-or-later | `verovio/COPYING.LESSER`, `verovio/COPYING` |
 | FluidSynth 2.5.7 (official Android build) | `lib/<abi>/libfluidsynth.so` | LGPL-2.1-or-later | `LGPL-2.1.txt` |
 | GLib (libglib-2.0, libgthread-2.0) | `lib/<abi>/` | LGPL-2.1-or-later | `LGPL-2.1.txt` |

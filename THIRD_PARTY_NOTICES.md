@@ -1,5 +1,8 @@
 # Third-party notices
 
+Grulla Music's own code is under the MIT License (see [LICENSE](LICENSE)). The components
+below keep their own licenses.
+
 The full list of bundled components and their license texts ships in the app at
 `app/src/main/assets/licenses/README.md`, with Verovio's texts in `app/src/main/assets/verovio/`.
 
