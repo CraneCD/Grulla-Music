@@ -1,9 +1,13 @@
 package com.grulla.music
 
 import android.app.Application
+import android.content.Intent
 import android.net.Uri
+import android.util.Base64
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
+import com.grulla.music.core.library.LibraryEntry
+import com.grulla.music.core.library.ScoreSettings
 import com.grulla.music.core.playback.MixState
 import com.grulla.music.core.playback.Mixer
 import com.grulla.music.core.playback.MixerChannel
@@ -23,13 +27,19 @@ import com.grulla.music.score.ScoreOrigin
 import com.grulla.music.score.ScoreWebCallbacks
 import com.grulla.music.score.WebCommand
 import com.grulla.music.ui.TransportActions
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.FlowPreview
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.flow.debounce
+import kotlinx.coroutines.flow.distinctUntilChanged
+import kotlinx.coroutines.flow.filterNotNull
 import kotlinx.coroutines.flow.receiveAsFlow
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
@@ -37,7 +47,7 @@ import kotlinx.coroutines.withContext
 
 data class ScoreUiState(
     val title: String = "",
-    val loading: Boolean = true,
+    val loading: Boolean = false,
     val error: String? = null,
     val scale: Int = ScoreViewModel.DEFAULT_SCALE,
     val layoutMode: LayoutMode = LayoutMode.CONTINUOUS,
@@ -50,6 +60,8 @@ data class ScoreUiState(
     /** One strip per staff/part, for mute and solo. */
     val mixer: List<MixerChannel> = emptyList(),
     val mix: MixState = MixState(),
+    /** False until the score has been rendered and its saved settings applied. */
+    val ready: Boolean = false,
 )
 
 class ScoreViewModel(application: Application) :
@@ -57,13 +69,15 @@ class ScoreViewModel(application: Application) :
     ScoreWebCallbacks,
     PlaybackListener,
     TransportActions {
+    private val app = application as GrullaApp
     private val files = ScoreFiles(application)
+    private val library = app.library
 
     private val mutableUi = MutableStateFlow(ScoreUiState())
     val ui: StateFlow<ScoreUiState> = mutableUi.asStateFlow()
 
     private val playback = PlaybackController(
-        player = (application as GrullaApp).audio.player,
+        player = app.audio.player,
         scope = viewModelScope,
         awaitFrameNanos = ::awaitFrameNanos,
         listener = this,
@@ -80,6 +94,11 @@ class ScoreViewModel(application: Application) :
     private var webReady = false
     private var openJob: Job? = null
 
+    /** Library entry of the open score; its settings are saved as they change. */
+    private val entryId = MutableStateFlow<String?>(null)
+    private var savedSettings: ScoreSettings = ScoreSettings()
+    private var thumbnailWanted = false
+
     /** The rendered score's timemap and MusicXML (for measure lookups and the part list). */
     private var timemap: Timemap? = null
     private var musicXml: String? = null
@@ -93,27 +112,55 @@ class ScoreViewModel(application: Application) :
     val pickerMimeTypes: Array<String> get() = files.pickerMimeTypes
 
     init {
-        openWith(fallbackTitle = "Sample") { files.openAsset(ScoreFiles.SAMPLE_ASSET) }
+        autosaveSettings()
     }
 
     fun currentScoreBytes(): ByteArray? = scoreBytes
 
-    fun openDocument(uri: Uri) = openWith { files.open(uri) }
+    // --- Opening scores --------------------------------------------------------------
 
-    private fun openWith(fallbackTitle: String = "Score", read: () -> Pair<LoadedScore, String>) {
-        openJob?.cancel()
-        mutableUi.update { it.copy(loading = true, error = null) }
-        openJob = viewModelScope.launch {
-            val result = runCatching { withContext(Dispatchers.IO) { read() } }
-            result.onSuccess { (score, name) -> showScore(score, score.title ?: name.ifBlank { fallbackTitle }) }
-            result.onFailure { error ->
-                if (error is kotlinx.coroutines.CancellationException) throw error
-                mutableUi.update { it.copy(loading = false, error = error.message ?: "Could not open the file.") }
+    fun openEntry(entry: LibraryEntry) = open(entry.uri)
+
+    fun openSample() = open(ScoreFiles.SAMPLE_URI)
+
+    /**
+     * Opens a file chosen with the system picker (or sent by another app). Picker
+     * results can keep their read permission, so the score stays in the library.
+     */
+    fun openDocument(uri: Uri, keepAccess: Boolean) {
+        if (keepAccess) {
+            runCatching {
+                app.contentResolver.takePersistableUriPermission(uri, Intent.FLAG_GRANT_READ_URI_PERMISSION)
             }
+        }
+        open(uri.toString())
+    }
+
+    private fun open(uri: String) {
+        saveSettingsNow()
+        openJob?.cancel()
+        playback.stop()
+        mutableUi.update { it.copy(loading = true, ready = false, error = null) }
+        openJob = viewModelScope.launch {
+            val (score, name) = try {
+                withContext(Dispatchers.IO) { files.open(uri) }
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                val message = if (e is SecurityException) "This file is no longer accessible. Open it again from the file picker." else e.message
+                mutableUi.update { it.copy(loading = false, error = message ?: "Could not open the file.") }
+                return@launch
+            }
+            val title = score.title ?: name.ifBlank { "Score" }
+            val entry = library.opened(uri, title, score.composer)
+            entryId.value = entry.id
+            savedSettings = entry.settings
+            thumbnailWanted = library.thumbnailFile(entry) == null
+            showScore(score, title, entry.settings)
         }
     }
 
-    private fun showScore(score: LoadedScore, title: String) {
+    private fun showScore(score: LoadedScore, title: String, settings: ScoreSettings) {
         playback.clearScore()
         timemap = null
         musicXml = score.musicXml
@@ -122,7 +169,19 @@ class ScoreViewModel(application: Application) :
         scoreBytes = score.musicXml.toByteArray(Charsets.UTF_8)
         scoreVersion++
         mutableUi.update {
-            it.copy(title = title, loading = true, error = null, page = 1, pageCount = 0, mixer = emptyList(), mix = MixState())
+            it.copy(
+                title = title,
+                loading = true,
+                ready = false,
+                error = null,
+                page = 1,
+                pageCount = 0,
+                mixer = emptyList(),
+                mix = MixState(),
+                scale = settings.scale ?: DEFAULT_SCALE,
+                layoutMode = if (settings.pageLayout == true) LayoutMode.PAGE else LayoutMode.CONTINUOUS,
+                follow = settings.follow,
+            )
         }
         if (webReady) sendLoad()
     }
@@ -131,6 +190,80 @@ class ScoreViewModel(application: Application) :
         if (scoreBytes == null) return
         val state = mutableUi.value
         commandChannel.trySend(WebCommand.Load(ScoreOrigin.scoreUrl(scoreVersion), state.scale, state.layoutMode))
+    }
+
+    /** Leaving the score screen: stop the music and remember where we were. */
+    fun leaveScore() {
+        playback.pause()
+        saveSettingsNow()
+    }
+
+    // --- Per-score settings ------------------------------------------------------------
+
+    private fun currentSettings(ui: ScoreUiState, playback: PlaybackState) = ScoreSettings(
+        scale = ui.scale,
+        pageLayout = ui.layoutMode == LayoutMode.PAGE,
+        tempoPercent = playback.tempoPercent,
+        countIn = playback.countInEnabled,
+        metronome = playback.metronomeEnabled,
+        follow = ui.follow,
+        loopStartMs = playback.loop?.startMs,
+        loopEndMs = playback.loop?.endMs,
+        loopEnabled = playback.loopEnabled,
+        mutedTracks = ui.mix.muted,
+        soloedTracks = ui.mix.soloed,
+        lastPositionMs = playback.positionMs,
+    )
+
+    /** Saves settings when they have been stable for a moment (so not continuously while playing). */
+    @OptIn(FlowPreview::class)
+    private fun autosaveSettings() {
+        viewModelScope.launch {
+            combine(entryId, ui, playbackState) { id, ui, playback ->
+                if (id == null || !ui.ready) null else id to currentSettings(ui, playback)
+            }
+                .filterNotNull()
+                .distinctUntilChanged()
+                .debounce(AUTOSAVE_DELAY_MS)
+                .collect { (id, settings) ->
+                    if (settings != savedSettings) {
+                        savedSettings = settings
+                        library.saveSettings(id, settings)
+                    }
+                }
+        }
+    }
+
+    private fun saveSettingsNow() {
+        val id = entryId.value ?: return
+        if (!mutableUi.value.ready) return
+        val settings = currentSettings(mutableUi.value, playbackState.value)
+        if (settings != savedSettings) {
+            savedSettings = settings
+            library.saveSettings(id, settings)
+        }
+    }
+
+    /** Restores what was saved for this score, once it has been rendered. */
+    private fun applySettings(settings: ScoreSettings, map: Timemap) {
+        playback.setTempoPercent(settings.tempoPercent)
+        playback.setCountInEnabled(settings.countIn)
+        playback.setMetronomeEnabled(settings.metronome)
+        val tracks = mutableUi.value.mixer.map { it.trackIndex }.toSet()
+        updateMix { MixState(muted = settings.mutedTracks intersect tracks, soloed = settings.soloedTracks intersect tracks) }
+        val start = settings.loopStartMs
+        val end = settings.loopEndMs
+        if (start != null && end != null && end > start && end <= map.durationMs + 1) {
+            val first = map.measureAt(start)
+            val last = map.measureAt(end - 1)
+            if (first != null && last != null) {
+                loopMeasures = first.id to last.id
+                playback.setLoop(TimeRange(start, end))
+                playback.setLoopEnabled(settings.loopEnabled)
+                if (settings.loopEnabled) commandChannel.trySend(WebCommand.SetLoop(first.id, last.id))
+            }
+        }
+        if (settings.lastPositionMs > 0) playback.seekTo(settings.lastPositionMs)
     }
 
     // --- Callbacks from the WebView ------------------------------------------------
@@ -145,22 +278,36 @@ class ScoreViewModel(application: Application) :
         val expectedSource = ScoreOrigin.scoreUrl(scoreVersion)
         val xml = musicXml
         viewModelScope.launch {
-            val (rendered, channels) = runCatching {
+            val (rendered, channels) = try {
                 withContext(Dispatchers.Default) {
                     val rendered = RenderedScore.parse(payloadJson)
                     // The mixer is optional: a part list we cannot read just means no mixer.
                     val parts = xml?.let { runCatching { PartListParser.parse(it) }.getOrNull() }.orEmpty()
                     rendered to Mixer.channels(parts, rendered.midi)
                 }
-            }.getOrElse { error ->
-                mutableUi.update { it.copy(loading = false, error = "Could not prepare playback: ${error.message}") }
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                mutableUi.update { it.copy(loading = false, error = "Could not prepare playback: ${e.message}") }
                 return@launch
             }
             if (rendered.source != expectedSource || ScoreOrigin.scoreUrl(scoreVersion) != expectedSource) return@launch
             timemap = rendered.timemap
             playback.setScore(rendered.timemap, rendered.midi)
             mutableUi.update { it.copy(loading = false, pageCount = rendered.pageCount, mixer = channels, mix = MixState()) }
+            applySettings(savedSettings, rendered.timemap)
+            mutableUi.update { it.copy(ready = true) }
+            if (thumbnailWanted) {
+                thumbnailWanted = false
+                commandChannel.trySend(WebCommand.Thumbnail(THUMBNAIL_WIDTH))
+            }
         }
+    }
+
+    override fun onThumbnail(pngDataUrl: String) {
+        val id = entryId.value ?: return
+        val png = runCatching { Base64.decode(pngDataUrl.substringAfter("base64,"), Base64.DEFAULT) }.getOrNull() ?: return
+        library.saveThumbnail(id, png)
     }
 
     override fun onMeasureTapped(measureId: String) {
@@ -251,8 +398,6 @@ class ScoreViewModel(application: Application) :
         playback.setSilencedTracks(state.mix.silencedTracks(state.mixer))
     }
 
-    fun dismissNotice() = mutableUi.update { it.copy(notice = null) }
-
     override fun setFollow(enabled: Boolean) = mutableUi.update { it.copy(follow = enabled) }
 
     fun zoomIn() = setScale(mutableUi.value.scale + SCALE_STEP)
@@ -278,12 +423,15 @@ class ScoreViewModel(application: Application) :
 
     fun dismissError() = mutableUi.update { it.copy(error = null) }
 
+    fun dismissNotice() = mutableUi.update { it.copy(notice = null) }
+
     private fun sendLayout() {
         val state = mutableUi.value
         commandChannel.trySend(WebCommand.SetLayout(state.scale, state.layoutMode))
     }
 
     override fun onCleared() {
+        saveSettingsNow()
         playback.release()
         commandChannel.close()
     }
@@ -294,5 +442,7 @@ class ScoreViewModel(application: Application) :
         const val MIN_SCALE = 15
         const val MAX_SCALE = 120
         private const val SCALE_STEP = 5
+        private const val AUTOSAVE_DELAY_MS = 800L
+        private const val THUMBNAIL_WIDTH = 240
     }
 }

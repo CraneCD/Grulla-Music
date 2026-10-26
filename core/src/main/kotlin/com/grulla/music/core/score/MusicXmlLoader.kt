@@ -20,6 +20,7 @@ data class LoadedScore(
     val musicXml: String,
     val format: ScoreFormat,
     val title: String?,
+    val composer: String? = null,
 )
 
 class ScoreLoadException(message: String, cause: Throwable? = null) : Exception(message, cause)
@@ -52,7 +53,7 @@ object MusicXmlLoader {
         if (!looksLikeMusicXml(xml)) {
             throw ScoreLoadException("This file does not look like MusicXML (no <score-partwise> or <score-timewise> root).")
         }
-        return LoadedScore(musicXml = xml, format = format, title = extractTitle(xml))
+        return LoadedScore(musicXml = xml, format = format, title = extractTitle(xml), composer = extractComposer(xml))
     }
 
     /** Returns the bytes of the score document referenced by an .mxl archive. */
@@ -169,6 +170,10 @@ object MusicXmlLoader {
 
     internal fun extractTitle(xml: String): String? =
         TITLE_PATTERNS.firstNotNullOfOrNull { it.find(xml)?.groupValues?.get(1) }?.let(::unescapeXml)
+
+    private val COMPOSER = Regex("""<creator\s+type\s*=\s*["']composer["']\s*>\s*([^<]+?)\s*</creator>""")
+
+    internal fun extractComposer(xml: String): String? = COMPOSER.find(xml)?.groupValues?.get(1)?.let(::unescapeXml)
 
     private fun unescapeXml(text: String): String = text
         .replace("&lt;", "<").replace("&gt;", ">")

@@ -66,7 +66,7 @@ interface TransportActions {
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun ScoreScreen(viewModel: ScoreViewModel, onOpenFile: () -> Unit, onOpenSettings: () -> Unit) {
+fun ScoreScreen(viewModel: ScoreViewModel, onBack: () -> Unit, onOpenSettings: () -> Unit) {
     val ui by viewModel.ui.collectAsStateWithLifecycle()
     val playback by viewModel.playbackState.collectAsStateWithLifecycle()
     val snackbar = remember { SnackbarHostState() }
@@ -87,10 +87,10 @@ fun ScoreScreen(viewModel: ScoreViewModel, onOpenFile: () -> Unit, onOpenSetting
         topBar = {
             TopAppBar(
                 title = { Text(ui.title, maxLines = 1, overflow = TextOverflow.Ellipsis) },
+                navigationIcon = {
+                    IconButton(onClick = onBack) { Icon(AppIcons.ArrowBack, contentDescription = "Library") }
+                },
                 actions = {
-                    IconButton(onClick = onOpenFile) {
-                        Icon(AppIcons.FolderOpen, contentDescription = "Open score")
-                    }
                     if (ui.mixer.size > 1) {
                         IconButton(onClick = { showMixer = true }) {
                             Icon(AppIcons.Tune, contentDescription = "Parts")

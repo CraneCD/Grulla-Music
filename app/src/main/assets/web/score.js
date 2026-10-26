@@ -11,6 +11,7 @@
  *   showPage(n)              page mode only
  *   countIn(beat, total)     show the count-in beat (beat 0 hides it)
  *   setLoop(firstId, lastId) shade the measures of the A–B loop (null clears it)
+ *   thumbnail(width)         render the top of page 1 to a PNG, reported via onThumbnail
  *
  * JS -> Kotlin (window.GrullaHost, an @JavascriptInterface object):
  *   onReady(verovioVersion)
@@ -20,6 +21,7 @@
  *   onMeasureLongPressed(measureId)
  *   onZoomChanged(scale)
  *   onPageChanged(page, pageCount)
+ *   onThumbnail(pngDataUrl)
  *   onError(message)
  */
 'use strict';
@@ -205,6 +207,36 @@
       }
     }
     return pitches;
+  }
+
+  /** Draws the top of the first page (at most 1.4 × width tall) and reports it as a PNG data URL. */
+  function thumbnail(width) {
+    const svg = scoreEl.querySelector('.page svg');
+    if (!state.loaded || !svg) return;
+    const xml = new XMLSerializer().serializeToString(svg);
+    const url = URL.createObjectURL(new Blob([xml], { type: 'image/svg+xml' }));
+    const image = new Image();
+    image.onload = function () {
+      const scale = width / image.width;
+      const height = Math.min(Math.round(image.height * scale), Math.round(width * 1.4));
+      const canvas = document.createElement('canvas');
+      canvas.width = width;
+      canvas.height = height;
+      const ctx = canvas.getContext('2d');
+      ctx.fillStyle = '#ffffff';
+      ctx.fillRect(0, 0, width, height);
+      ctx.drawImage(image, 0, 0, width, image.height * scale);
+      URL.revokeObjectURL(url);
+      try {
+        host.onThumbnail(canvas.toDataURL('image/png'));
+      } catch (e) {
+        host.onError('Thumbnail failed: ' + messageOf(e));
+      }
+    };
+    image.onerror = function () {
+      URL.revokeObjectURL(url);
+    };
+    image.src = url;
   }
 
   function countIn(beat, total) {
@@ -521,6 +553,7 @@
       onMeasureLongPressed: record('onMeasureLongPressed'),
       onZoomChanged: record('onZoomChanged'),
       onPageChanged: record('onPageChanged'),
+      onThumbnail: record('onThumbnail'),
       onError: record('onError'),
     };
   }
@@ -533,5 +566,6 @@
     showPage: showPage,
     countIn: countIn,
     setLoop: setLoop,
+    thumbnail: thumbnail,
   };
 })();

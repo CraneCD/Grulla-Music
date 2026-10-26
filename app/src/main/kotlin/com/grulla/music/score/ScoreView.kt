@@ -40,6 +40,7 @@ sealed interface WebCommand {
     data class CountIn(val beat: Int, val total: Int) : WebCommand
     /** Shade measures [firstId]..[lastId]; null clears the loop shading. */
     data class SetLoop(val firstId: String?, val lastId: String?) : WebCommand
+    data class Thumbnail(val width: Int) : WebCommand
 
     /** Guarded so that calls made before score.js has loaded are dropped instead of throwing. */
     fun toJavaScript(): String = "window.grulla && " + when (this) {
@@ -49,6 +50,7 @@ sealed interface WebCommand {
         is ShowPage -> "grulla.showPage($page)"
         is CountIn -> "grulla.countIn($beat, $total)"
         is SetLoop -> "grulla.setLoop(${firstId?.let(JSONObject::quote)}, ${lastId?.let(JSONObject::quote)})"
+        is Thumbnail -> "grulla.thumbnail($width)"
     }
 
     private fun layoutJson(scale: Int, mode: LayoutMode) =
@@ -64,6 +66,7 @@ interface ScoreWebCallbacks {
     fun onZoomChanged(scale: Int)
     fun onPageChanged(page: Int, pageCount: Int)
     fun onWebError(message: String)
+    fun onThumbnail(pngDataUrl: String)
 }
 
 /**
@@ -189,6 +192,9 @@ private class ScoreHostBridge(private val callbacks: ScoreWebCallbacks) {
 
     @JavascriptInterface
     fun onPageChanged(page: Int, pageCount: Int) = onMain { onPageChanged(page, pageCount) }
+
+    @JavascriptInterface
+    fun onThumbnail(pngDataUrl: String) = onMain { onThumbnail(pngDataUrl) }
 
     @JavascriptInterface
     fun onError(message: String) {

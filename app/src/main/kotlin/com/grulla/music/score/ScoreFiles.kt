@@ -3,6 +3,7 @@ package com.grulla.music.score
 import android.content.Context
 import android.net.Uri
 import android.provider.OpenableColumns
+import androidx.core.net.toUri
 import com.grulla.music.core.score.LoadedScore
 import com.grulla.music.core.score.MusicXmlLoader
 import com.grulla.music.core.score.ScoreLoadException
@@ -21,6 +22,10 @@ class ScoreFiles(private val context: Context) {
         // Many providers do not know .mxl / .musicxml and report them as generic binary files.
         "application/octet-stream",
     )
+
+    /** Opens a library URI: content://..., or asset:<path> for a bundled sample. Blocking. */
+    fun open(uri: String): Pair<LoadedScore, String> =
+        if (uri.startsWith(ASSET_SCHEME)) openAsset(uri.removePrefix(ASSET_SCHEME)) else open(uri.toUri())
 
     /** Blocking; call off the main thread. Returns the score and a fallback title (the file name). */
     fun open(uri: Uri): Pair<LoadedScore, String> {
@@ -55,7 +60,8 @@ class ScoreFiles(private val context: Context) {
     }
 
     companion object {
-        const val SAMPLE_ASSET = "samples/ode-to-joy.musicxml"
+        const val ASSET_SCHEME = "asset:"
+        const val SAMPLE_URI = "${ASSET_SCHEME}samples/ode-to-joy.musicxml"
         private const val MAX_FILE_BYTES = 64L * 1024 * 1024
     }
 }

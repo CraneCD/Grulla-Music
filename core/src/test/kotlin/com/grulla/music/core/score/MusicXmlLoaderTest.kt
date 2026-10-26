@@ -14,6 +14,7 @@ class MusicXmlLoaderTest {
     private val minimalScore = """
         <?xml version="1.0" encoding="UTF-8"?>
         <score-partwise version="4.0"><work><work-title>Minuet &amp; Trio</work-title></work>
+        <identification><creator type="composer">J. S. Bach</creator></identification>
         <part-list/></score-partwise>
     """.trimIndent()
 
@@ -49,6 +50,7 @@ class MusicXmlLoaderTest {
         val score = MusicXmlLoader.load(minimalScore.toByteArray())
         assertEquals(ScoreFormat.MUSICXML, score.format)
         assertEquals("Minuet & Trio", score.title)
+        assertEquals("J. S. Bach", score.composer)
     }
 
     @Test

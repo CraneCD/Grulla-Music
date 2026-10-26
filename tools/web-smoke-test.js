@@ -115,6 +115,13 @@ async function shot(page, name) {
     await page.evaluate(() => window.grulla.setLoop(null));
     check(await page.locator('.loop-band').count() === 0, 'loop cleared');
 
+    // Thumbnail of page 1 as a PNG (the canvas must not be tainted by the SVG).
+    mark = await eventCount(page);
+    await page.evaluate(() => window.grulla.thumbnail(240));
+    const thumb = await waitForEvent(page, 'onThumbnail', mark);
+    check(thumb.args[0].startsWith('data:image/png;base64,') && thumb.args[0].length > 5000, 'thumbnail PNG (' + thumb.args[0].length + ' chars)');
+    if (SHOTS) fs.writeFileSync(path.join(SHOTS, 'thumbnail.png'), Buffer.from(thumb.args[0].split(',')[1], 'base64'));
+
     // Pinch out with two fingers through CDP: expect a re-layout at a larger scale.
     const cdp = await context.newCDPSession(page);
     const touch = (type, spread) => cdp.send('Input.dispatchTouchEvent', {
