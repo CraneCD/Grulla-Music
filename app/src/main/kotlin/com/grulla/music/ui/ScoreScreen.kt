@@ -2,6 +2,7 @@ package com.grulla.music.ui
 
 import android.Manifest
 import android.content.pm.PackageManager
+import android.content.res.Configuration
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.BorderStroke
@@ -17,6 +18,8 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
+import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
@@ -53,12 +56,14 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.semantics.LiveRegionMode
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.liveRegion
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.core.content.ContextCompat
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
@@ -85,6 +90,10 @@ interface ScoreActions {
     fun explainLoop()
     fun setFollow(enabled: Boolean)
     fun showPage(page: Int)
+    /** Next (+1) or previous (-1) page, spread or screenful. */
+    fun turnPage(direction: Int)
+    /** Silence every part: the score scrolls at the tempo, for reading hands-free. */
+    fun setSilent(silent: Boolean)
     fun seekToFraction(fraction: Float)
     fun zoomIn()
     fun zoomOut()
@@ -96,7 +105,13 @@ interface ScoreActions {
 }
 
 @Composable
-fun ScoreScreen(viewModel: ScoreViewModel, night: Boolean, onBack: () -> Unit, onOpenSettings: () -> Unit) {
+fun ScoreScreen(
+    viewModel: ScoreViewModel,
+    night: Boolean,
+    onBack: () -> Unit,
+    onOpenSettings: () -> Unit,
+    tabletop: Tabletop? = null,
+) {
     val ui by viewModel.ui.collectAsStateWithLifecycle()
     val playback by viewModel.playbackState.collectAsStateWithLifecycle()
     val snackbar = remember { SnackbarHostState() }
@@ -131,14 +146,36 @@ fun ScoreScreen(viewModel: ScoreViewModel, night: Boolean, onBack: () -> Unit, o
         onOpenSettings = onOpenSettings,
         onListen = toggleListening,
         snackbarHost = { SnackbarHost(snackbar) },
+        dockLayout = DockLayout.forScreen(LocalConfiguration.current, tabletop),
     ) { modifier ->
-        ScoreView(
-            commands = viewModel.webCommands,
-            callbacks = viewModel,
-            scoreBytes = viewModel::currentScoreBytes,
-            night = night,
-            modifier = modifier,
-        )
+        ScoreView(host = viewModel.webHost, commands = viewModel.webCommands, night = night, modifier = modifier)
+    }
+}
+
+/** A foldable half open like a laptop: the score above the hinge, the controls below it. */
+data class Tabletop(val lowerHeight: Dp)
+
+/** How the transport dock is laid out for the screen size and posture. */
+sealed interface DockLayout {
+    /** Phones in portrait: three rows (progress, buttons, toggles). */
+    data object Regular : DockLayout
+
+    /** Little height (phones in landscape): everything in one row. */
+    data object Compact : DockLayout
+
+    /** Wide screens: the regular dock, centred at a readable width. */
+    data object Wide : DockLayout
+
+    /** Tabletop posture: the dock fills the lower half of the screen. */
+    data class Lower(val height: Dp) : DockLayout
+
+    companion object {
+        fun forScreen(configuration: Configuration, tabletop: Tabletop?): DockLayout = when {
+            tabletop != null -> Lower(tabletop.lowerHeight)
+            configuration.screenHeightDp in 1 until 480 -> Compact
+            configuration.screenWidthDp >= 600 -> Wide
+            else -> Regular
+        }
     }
 }
 
@@ -156,6 +193,7 @@ fun ScoreScreenContent(
     onOpenSettings: () -> Unit,
     onListen: () -> Unit,
     snackbarHost: @Composable () -> Unit = {},
+    dockLayout: DockLayout = DockLayout.Regular,
     score: @Composable (Modifier) -> Unit,
 ) {
     val c = Grulla.colors
@@ -170,9 +208,11 @@ fun ScoreScreenContent(
         bottomBar = {
             val listening = ui.listening
             if (listening != null) {
-                ListeningDock(listening, actions)
+                ListeningDock(listening, actions, dockLayout)
+            } else if (dockLayout == DockLayout.Compact) {
+                CompactTransportDock(ui, playback, actions, onListen = onListen, onTempo = { showTempo = true })
             } else {
-                TransportDock(ui, playback, actions, onListen = onListen, onTempo = { showTempo = true })
+                TransportDock(ui, playback, actions, onListen = onListen, onTempo = { showTempo = true }, layout = dockLayout)
             }
         },
         snackbarHost = snackbarHost,
@@ -299,11 +339,15 @@ private fun PagePill(ui: ScoreUiState, actions: ScoreActions, modifier: Modifier
     val c = Grulla.colors
     Surface(modifier = modifier, shape = CircleShape, color = c.sheet, shadowElevation = 4.dp, border = BorderStroke(1.dp, c.line)) {
         Row(verticalAlignment = Alignment.CenterVertically) {
-            IconButton(onClick = { actions.showPage(ui.page - 1) }, enabled = ui.page > 1) {
+            val lastShown = if (ui.spread) minOf(ui.page + 1, ui.pageCount) else ui.page
+            IconButton(onClick = { actions.turnPage(-1) }, enabled = ui.page > 1) {
                 Icon(AppIcons.ChevronLeft, contentDescription = "Previous page")
             }
-            Text("${ui.page} / ${ui.pageCount}", style = MaterialTheme.typography.labelMedium.copy(fontFeatureSettings = "tnum"))
-            IconButton(onClick = { actions.showPage(ui.page + 1) }, enabled = ui.page < ui.pageCount) {
+            Text(
+                if (lastShown > ui.page) "${ui.page}–$lastShown / ${ui.pageCount}" else "${ui.page} / ${ui.pageCount}",
+                style = MaterialTheme.typography.labelMedium.copy(fontFeatureSettings = "tnum"),
+            )
+            IconButton(onClick = { actions.turnPage(1) }, enabled = lastShown < ui.pageCount) {
                 Icon(AppIcons.ChevronRight, contentDescription = "Next page")
             }
         }
@@ -312,76 +356,116 @@ private fun PagePill(ui: ScoreUiState, actions: ScoreActions, modifier: Modifier
 
 /** The bottom dock while playing: progress, Stop / Play / tempo, and practice toggles. */
 @Composable
-private fun TransportDock(ui: ScoreUiState, playback: PlaybackState, actions: ScoreActions, onListen: () -> Unit, onTempo: () -> Unit) {
-    val c = Grulla.colors
-    Dock {
-        val duration = playback.durationMs.coerceAtLeast(1.0)
-        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-            Text(formatTime(playback.positionMs), style = MaterialTheme.typography.labelMedium.copy(fontFeatureSettings = "tnum"))
-            ProgressTrack(
-                fraction = (playback.positionMs / duration).toFloat(),
-                loop = playback.loop?.let { (it.startMs / duration).toFloat()..(it.endMs / duration).toFloat() },
-                onSeek = actions::seekToFraction,
-                enabled = playback.hasScore,
-                modifier = Modifier.weight(1f),
-            )
-            Text(
-                formatTime(playback.durationMs),
-                style = MaterialTheme.typography.labelMedium.copy(fontFeatureSettings = "tnum"),
-                color = c.graphite,
-            )
-        }
+private fun TransportDock(
+    ui: ScoreUiState,
+    playback: PlaybackState,
+    actions: ScoreActions,
+    onListen: () -> Unit,
+    onTempo: () -> Unit,
+    layout: DockLayout,
+) {
+    Dock(layout) {
+        PositionBar(playback, actions)
         Box(Modifier.fillMaxWidth().height(64.dp)) {
             Row(Modifier.align(Alignment.CenterStart), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 RoundOutlineButton(AppIcons.Stop, "Stop", onClick = actions::stop, enabled = playback.hasScore)
                 FollowMeButton(onListen, enabled = playback.hasScore)
             }
             PlayButton(playback, actions::togglePlay, Modifier.align(Alignment.Center))
-            Surface(
-                onClick = onTempo,
-                shape = CircleShape,
-                color = Color.Transparent,
-                border = BorderStroke(1.dp, c.line),
-                modifier = Modifier
-                    .align(Alignment.CenterEnd)
-                    .height(44.dp)
-                    .semantics { contentDescription = "Tempo ${playback.tempoPercent} percent, change" },
-            ) {
-                Row(Modifier.padding(horizontal = 14.dp), verticalAlignment = Alignment.CenterVertically) {
-                    Icon(AppIcons.Metronome, contentDescription = null, modifier = Modifier.size(18.dp))
-                    Spacer(Modifier.width(6.dp))
-                    Text("${playback.tempoPercent}%", style = MaterialTheme.typography.labelLarge.copy(fontFeatureSettings = "tnum"))
-                }
-            }
+            TempoPill(playback.tempoPercent, onTempo, Modifier.align(Alignment.CenterEnd))
         }
-        Row(
-            Modifier.horizontalScroll(rememberScrollState()),
-            horizontalArrangement = Arrangement.spacedBy(8.dp),
-            verticalAlignment = Alignment.CenterVertically,
-        ) {
-            GrullaChip("Count-in", playback.countInEnabled, onClick = { actions.setCountIn(!playback.countInEnabled) })
-            GrullaChip("Metronome", playback.metronomeEnabled, onClick = { actions.setMetronome(!playback.metronomeEnabled) })
-            val loop = playback.loop
-            if (loop == null) {
-                GrullaChip("Loop", selected = false, onClick = actions::explainLoop)
-            } else {
-                GrullaChip(
-                    label = ui.loopLabel ?: "Loop",
-                    selected = playback.loopEnabled,
-                    onClick = { actions.setLoopEnabled(!playback.loopEnabled) },
-                    trailing = {
-                        Icon(
-                            AppIcons.Close,
-                            contentDescription = "Clear loop",
-                            modifier = Modifier
-                                .size(28.dp)
-                                .clip(CircleShape)
-                                .clickable(onClickLabel = "Clear loop", onClick = actions::clearLoop)
-                                .padding(6.dp),
-                        )
-                    },
-                )
-            }
+        PracticeToggles(ui, playback, actions, Modifier)
+    }
+}
+
+/** Elapsed time, the seekable progress track (with the loop) and the duration. */
+@Composable
+private fun PositionBar(playback: PlaybackState, actions: ScoreActions) {
+    val c = Grulla.colors
+    val duration = playback.durationMs.coerceAtLeast(1.0)
+    Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+        Text(formatTime(playback.positionMs), style = MaterialTheme.typography.labelMedium.copy(fontFeatureSettings = "tnum"))
+        ProgressTrack(
+            fraction = (playback.positionMs / duration).toFloat(),
+            loop = playback.loop?.let { (it.startMs / duration).toFloat()..(it.endMs / duration).toFloat() },
+            onSeek = actions::seekToFraction,
+            enabled = playback.hasScore,
+            modifier = Modifier.weight(1f),
+        )
+        Text(
+            formatTime(playback.durationMs),
+            style = MaterialTheme.typography.labelMedium.copy(fontFeatureSettings = "tnum"),
+            color = c.graphite,
+        )
+    }
+}
+
+@Composable
+private fun TempoPill(tempoPercent: Int, onClick: () -> Unit, modifier: Modifier = Modifier) {
+    val c = Grulla.colors
+    Surface(
+        onClick = onClick,
+        shape = CircleShape,
+        color = Color.Transparent,
+        border = BorderStroke(1.dp, c.line),
+        modifier = modifier
+            .height(48.dp)
+            .semantics { contentDescription = "Tempo $tempoPercent percent, change" },
+    ) {
+        Row(Modifier.padding(horizontal = 14.dp), verticalAlignment = Alignment.CenterVertically) {
+            Icon(AppIcons.Metronome, contentDescription = null, modifier = Modifier.size(18.dp))
+            Spacer(Modifier.width(6.dp))
+            Text("$tempoPercent%", style = MaterialTheme.typography.labelLarge.copy(fontFeatureSettings = "tnum"))
+        }
+    }
+}
+
+/** Count-in, metronome, loop and silent scrolling. */
+@Composable
+private fun PracticeToggles(ui: ScoreUiState, playback: PlaybackState, actions: ScoreActions, modifier: Modifier) {
+    Row(
+        modifier.horizontalScroll(rememberScrollState()),
+        horizontalArrangement = Arrangement.spacedBy(8.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        GrullaChip("Count-in", playback.countInEnabled, onClick = { actions.setCountIn(!playback.countInEnabled) })
+        GrullaChip("Metronome", playback.metronomeEnabled, onClick = { actions.setMetronome(!playback.metronomeEnabled) })
+        val loop = playback.loop
+        if (loop == null) {
+            GrullaChip("Loop", selected = false, onClick = actions::explainLoop)
+        } else {
+            GrullaChip(
+                label = ui.loopLabel ?: "Loop",
+                selected = playback.loopEnabled,
+                onClick = { actions.setLoopEnabled(!playback.loopEnabled) },
+                trailing = {
+                    Icon(
+                        AppIcons.Close,
+                        contentDescription = "Clear loop",
+                        modifier = Modifier
+                            .size(28.dp)
+                            .clip(CircleShape)
+                            .clickable(onClickLabel = "Clear loop", onClick = actions::clearLoop)
+                            .padding(6.dp),
+                    )
+                },
+            )
+        }
+        GrullaChip("Silent", ui.silent, onClick = { actions.setSilent(!ui.silent) })
+    }
+}
+
+/** One row for screens with little height (phones in landscape). */
+@Composable
+private fun CompactTransportDock(ui: ScoreUiState, playback: PlaybackState, actions: ScoreActions, onListen: () -> Unit, onTempo: () -> Unit) {
+    Dock(DockLayout.Compact) {
+        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            RoundOutlineButton(AppIcons.Stop, "Stop", onClick = actions::stop, enabled = playback.hasScore)
+            FollowMeButton(onListen, enabled = playback.hasScore)
+            PlayButton(playback, actions::togglePlay, Modifier, size = 56.dp)
+            TempoPill(playback.tempoPercent, onTempo)
+            Box(Modifier.weight(1f)) { PositionBar(playback, actions) }
+            PracticeToggles(ui, playback, actions, Modifier.weight(1f))
         }
     }
 }
@@ -407,12 +491,12 @@ private fun FollowMeButton(onClick: () -> Unit, enabled: Boolean) {
 
 /** The big round play button: crown red, with a halo while sound is running. */
 @Composable
-private fun PlayButton(playback: PlaybackState, onClick: () -> Unit, modifier: Modifier) {
+private fun PlayButton(playback: PlaybackState, onClick: () -> Unit, modifier: Modifier, size: Dp = 64.dp) {
     val c = Grulla.colors
     val running = playback.isRunning
     Box(
         modifier
-            .size(76.dp)
+            .size(size + 12.dp)
             .clip(CircleShape)
             .background(if (running) c.crownHalo else Color.Transparent),
         contentAlignment = Alignment.Center,
@@ -424,7 +508,7 @@ private fun PlayButton(playback: PlaybackState, onClick: () -> Unit, modifier: M
             color = if (playback.hasScore) c.crown else c.line,
             contentColor = c.onCrown,
             modifier = Modifier
-                .size(64.dp)
+                .size(size)
                 .semantics { contentDescription = if (running) "Pause" else "Play" },
         ) {
             Box(contentAlignment = Alignment.Center) {
@@ -440,9 +524,9 @@ private fun PlayButton(playback: PlaybackState, onClick: () -> Unit, modifier: M
 
 /** The dock in Follow me: what to play next, what was heard, and the way out. */
 @Composable
-private fun ListeningDock(state: ListeningState, actions: ScoreActions) {
+private fun ListeningDock(state: ListeningState, actions: ScoreActions, layout: DockLayout) {
     val c = Grulla.colors
-    Dock {
+    Dock(if (layout == DockLayout.Compact) DockLayout.Regular else layout) {
         Row(
             Modifier
                 .fillMaxWidth()
@@ -508,19 +592,27 @@ private fun ListeningDock(state: ListeningState, actions: ScoreActions) {
 }
 
 @Composable
-private fun Dock(content: @Composable () -> Unit) {
+private fun Dock(layout: DockLayout, content: @Composable () -> Unit) {
     val c = Grulla.colors
-    Column(
+    val shape = RoundedCornerShape(topStart = 24.dp, topEnd = 24.dp)
+    Box(
         Modifier
             .fillMaxWidth()
-            .shadow(16.dp, RoundedCornerShape(topStart = 24.dp, topEnd = 24.dp), ambientColor = Color.Black.copy(alpha = 0.2f))
-            .clip(RoundedCornerShape(topStart = 24.dp, topEnd = 24.dp))
+            .then(if (layout is DockLayout.Lower) Modifier.heightIn(min = layout.height) else Modifier)
+            .shadow(16.dp, shape, ambientColor = Color.Black.copy(alpha = 0.2f))
+            .clip(shape)
             .background(c.sheet)
-            .then(if (c.night) Modifier.border(1.dp, c.line, RoundedCornerShape(topStart = 24.dp, topEnd = 24.dp)) else Modifier)
+            .then(if (c.night) Modifier.border(1.dp, c.line, shape) else Modifier)
             .navigationBarsPadding()
-            .padding(start = 16.dp, end = 16.dp, top = 10.dp, bottom = 18.dp),
-        verticalArrangement = Arrangement.spacedBy(10.dp),
-    ) { content() }
+            .padding(start = 16.dp, end = 16.dp, top = 10.dp, bottom = if (layout == DockLayout.Compact) 10.dp else 18.dp),
+        contentAlignment = Alignment.Center,
+    ) {
+        Column(
+            Modifier
+                .then(if (layout == DockLayout.Compact) Modifier.fillMaxWidth() else Modifier.widthIn(max = 640.dp).fillMaxWidth()),
+            verticalArrangement = Arrangement.spacedBy(10.dp),
+        ) { content() }
+    }
 }
 
 @Composable

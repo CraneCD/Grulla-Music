@@ -108,6 +108,11 @@ object PlaybackMidiBuilder {
         if (options.countIn != null) {
             tracks += countInTrack(options.countIn, countInBeats, grid)
         }
+        if (options.silencedTracks.isNotEmpty()) {
+            // Keep the full length even when every note is silenced (scrolling without sound).
+            val end = (endTick ?: lastSourceTick) - startTick + leadTicks
+            tracks[0] = MidiTrack(tracks[0].events + MidiEvent.Meta(end, MidiEvent.META_MARKER, "end".toByteArray(Charsets.US_ASCII)))
+        }
 
         val output = MidiFile(format = if (tracks.size > 1) 1 else source.format, division = source.division, tracks = tracks)
         val outputTempo = TempoMap.of(output)

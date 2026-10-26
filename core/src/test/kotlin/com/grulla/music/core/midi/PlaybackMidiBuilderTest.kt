@@ -149,6 +149,16 @@ class PlaybackMidiBuilderTest {
     }
 
     @Test
+    fun `silencing every track keeps the full length`() {
+        val full = PlaybackMidiBuilder.build(source, PlaybackOptions())
+        val prepared = PlaybackMidiBuilder.build(source, PlaybackOptions(silencedTracks = source.tracks.indices.toSet()))
+        val output = MidiReader.read(prepared.bytes)
+        assertTrue(output.allEvents().none { it is MidiEvent.Channel && it.isNoteOn })
+        assertEquals(lastEventMs(MidiReader.read(full.bytes)), lastEventMs(output), 1.0)
+        assertEquals(full.endPlayerMs, prepared.endPlayerMs, 1.0)
+    }
+
+    @Test
     fun `metronome accents every bar of the score`() {
         val prepared = PlaybackMidiBuilder.build(
             source,

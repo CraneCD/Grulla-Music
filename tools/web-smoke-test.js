@@ -67,11 +67,14 @@ async function shot(page, name) {
     await page.goto(base + '/web/index.html');
     const ready = await waitForEvent(page, 'onReady');
     check(/^6\.3\.0/.test(ready.args[0]), 'Verovio starts (' + ready.args[0] + ')');
+    check(await page.evaluate(() => window.grulla.engineKind()) === 'worker', 'Verovio runs in a Web Worker');
 
     let mark = await eventCount(page);
     await page.evaluate(() => window.grulla.load('/samples/ode-to-joy.musicxml', { scale: 40, mode: 'continuous' }));
     const loaded = await waitForEvent(page, 'onScoreLoaded', mark);
     const result = JSON.parse(loaded.args[0]);
+    const order = await page.evaluate((m) => window.grullaEvents.slice(m).map((e) => e.name), mark);
+    check(order.indexOf('onFirstPage') >= 0 && order.indexOf('onFirstPage') < order.indexOf('onScoreLoaded'), 'first page shown before the playback data');
     check(result.timemap.length > 50, 'timemap returned (' + result.timemap.length + ' entries)');
     check(result.midi.startsWith('TVRoZA'), 'MIDI returned as base64 SMF');
     check(result.timemap.filter((e) => e.measureOn).length === 16, '16 measures in the timemap');
@@ -148,6 +151,33 @@ async function shot(page, name) {
     const turned = await waitForEvent(page, 'onPageChanged', mark);
     check(turned.args[0] === pageCount, 'highlighting the last note turns to page ' + pageCount);
     check(await page.locator('.playing').count() === last.on.length, 'highlight survives the page turn');
+
+    // Pedal turns: previous page, then the next page again.
+    mark = await eventCount(page);
+    await page.evaluate(() => window.grulla.turn(-1));
+    check((await waitForEvent(page, 'onPageChanged', mark)).args[0] === pageCount - 1, 'turn(-1) shows the previous page');
+    mark = await eventCount(page);
+    await page.evaluate(() => window.grulla.turn(1));
+    check((await waitForEvent(page, 'onPageChanged', mark)).args[0] === pageCount, 'turn(1) shows the next page');
+
+    // Early page turns: on the last bar of page 1 the next page is already shown.
+    await page.evaluate(() => { window.grulla.setOptions({ earlyTurn: true }); window.grulla.showPage(1); });
+    const lastBarOfPage1 = await page.evaluate((map) => {
+      const ms = Array.from(document.querySelectorAll('.page g.measure')).map((m) => m.id);
+      const lastId = ms[ms.length - 1];
+      const entry = map.find((e) => e.measureOn === lastId);
+      return entry ? entry.on : null;
+    }, result.timemap);
+    mark = await eventCount(page);
+    await page.evaluate((ids) => window.grulla.highlight(ids, true), lastBarOfPage1);
+    check((await waitForEvent(page, 'onPageChanged', mark)).args[0] === 2, 'early turn: the last bar of page 1 shows page 2');
+    mark = await eventCount(page);
+    await page.evaluate((ids) => window.grulla.highlight(ids, true), lastBarOfPage1);
+    check((await page.evaluate((m) => window.grullaEvents.slice(m).filter((e) => e.name === 'onPageChanged').length, mark)) === 0,
+      'early turn: page 2 stays while the bar sounds');
+    await page.evaluate(() => window.grulla.setOptions({ earlyTurn: false }));
+    await page.evaluate((ids) => window.grulla.highlight(ids, true), last.on);
+
     await page.evaluate(() => window.grulla.countIn(2, 4));
     check(await page.locator('#count-in').isVisible(), 'count-in badge visible');
     await shot(page, '4-page-mode');
@@ -163,6 +193,14 @@ async function shot(page, name) {
     await shot(page, '5-night-listen');
     await page.evaluate(() => window.grulla.setTheme('day'));
 
+    // Continuous view: turn(1) scrolls down by about a screenful.
+    await page.evaluate(() => window.grulla.setLayout({ mode: 'continuous', scale: 70 }));
+    await page.waitForFunction(() => !document.body.classList.contains('mode-page') && document.querySelectorAll('.page').length > 0);
+    await page.evaluate(() => window.scrollTo(0, 0));
+    await page.evaluate(() => window.grulla.turn(1));
+    await page.waitForTimeout(800);
+    check(await page.evaluate(() => window.scrollY) > 200, 'turn(1) scrolls the continuous view');
+
     // Clearing and bad input.
     await page.evaluate(() => { window.grulla.countIn(0, 4); window.grulla.clearHighlight(); });
     check(await page.locator('.playing, .expected').count() === 0, 'clearHighlight removes highlight');
@@ -172,6 +210,22 @@ async function shot(page, name) {
     check(/404/.test(error.args[0]), 'missing file reports an error');
 
     check(errors.length === 0, 'no uncaught page errors ' + JSON.stringify(errors));
+
+    // A tablet in landscape: page view shows two pages side by side.
+    const tablet = await browser.newContext({ viewport: { width: 1280, height: 800 }, deviceScaleFactor: 1, hasTouch: true });
+    const wide = await tablet.newPage();
+    await wide.goto(base + '/web/index.html');
+    await waitForEvent(wide, 'onReady');
+    mark = await eventCount(wide);
+    await wide.evaluate(() => window.grulla.load('/samples/ode-to-joy.musicxml', { scale: 90, mode: 'page' }));
+    await waitForEvent(wide, 'onScoreLoaded', mark);
+    const spreadPage = await waitForEvent(wide, 'onPageChanged', mark);
+    check(spreadPage.args[2] === true && await wide.locator('.page').count() === 2, 'two-page spread in landscape (' + spreadPage.args[1] + ' pages)');
+    mark = await eventCount(wide);
+    await wide.evaluate(() => window.grulla.turn(1));
+    check((await waitForEvent(wide, 'onPageChanged', mark)).args[0] === 3, 'a spread turns two pages at a time');
+    await shot(wide, '6-spread');
+    await tablet.close();
     console.log('\nWeb smoke test passed.');
   } finally {
     await browser.close();

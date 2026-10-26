@@ -2,10 +2,12 @@ package com.grulla.music.score
 
 import android.annotation.SuppressLint
 import android.content.Context
+import android.content.MutableContextWrapper
 import android.content.pm.ApplicationInfo
 import android.os.Handler
 import android.os.Looper
 import android.util.Log
+import android.view.ViewGroup
 import android.webkit.JavascriptInterface
 import android.webkit.RenderProcessGoneDetail
 import android.webkit.WebResourceRequest
@@ -36,13 +38,16 @@ enum class LayoutMode(val js: String) { CONTINUOUS("continuous"), PAGE("page") }
 
 /** Kotlin -> JS calls on `window.grulla` (see assets/web/score.js). */
 sealed interface WebCommand {
-    data class Load(val url: String, val scale: Int, val mode: LayoutMode) : WebCommand
+    data class Load(val url: String, val scale: Int, val mode: LayoutMode, val transpose: String = "", val concertPitch: Boolean = false) : WebCommand
     data class SetLayout(val scale: Int, val mode: LayoutMode) : WebCommand
+    data class SetOptions(val earlyTurn: Boolean) : WebCommand
     data class Highlight(val noteIds: List<String>, val follow: Boolean, val kind: Kind = Kind.PLAY) : WebCommand {
         /** PLAY: sounding now (crown red). LISTEN: what to play next in Follow me (indigo). */
         enum class Kind(val js: String) { PLAY("play"), LISTEN("listen") }
     }
     data class ShowPage(val page: Int) : WebCommand
+    /** Next (+1) or previous (-1) page, spread or screenful. */
+    data class Turn(val direction: Int) : WebCommand
     data class CountIn(val beat: Int, val total: Int) : WebCommand
     /** Shade measures [firstId]..[lastId]; null clears the loop shading. */
     data class SetLoop(val firstId: String?, val lastId: String?) : WebCommand
@@ -50,10 +55,13 @@ sealed interface WebCommand {
 
     /** Guarded so that calls made before score.js has loaded are dropped instead of throwing. */
     fun toJavaScript(): String = "window.grulla && " + when (this) {
-        is Load -> "grulla.load(${JSONObject.quote(url)}, ${layoutJson(scale, mode)})"
+        is Load -> "grulla.load(${JSONObject.quote(url)}, ${layoutJson(scale, mode)}, " +
+            "${JSONObject().put("transpose", transpose).put("concertPitch", concertPitch)})"
         is SetLayout -> "grulla.setLayout(${layoutJson(scale, mode)})"
+        is SetOptions -> "grulla.setOptions(${JSONObject().put("earlyTurn", earlyTurn)})"
         is Highlight -> "grulla.highlight(${JSONArray(noteIds)}, $follow, '${kind.js}')"
         is ShowPage -> "grulla.showPage($page)"
+        is Turn -> "grulla.turn($direction)"
         is CountIn -> "grulla.countIn($beat, $total)"
         is SetLoop -> "grulla.setLoop(${firstId?.let(JSONObject::quote)}, ${lastId?.let(JSONObject::quote)})"
         is Thumbnail -> "grulla.thumbnail($width)"
@@ -66,11 +74,14 @@ sealed interface WebCommand {
 /** JS -> Kotlin callbacks. Always invoked on the main thread. */
 interface ScoreWebCallbacks {
     fun onWebReady(verovioVersion: String)
+    /** The first page is on screen; timemap and MIDI follow with [onScoreRendered]. */
+    fun onFirstPage()
     fun onScoreRendered(payloadJson: String)
     fun onMeasureTapped(measureId: String)
     fun onMeasureLongPressed(measureId: String)
     fun onZoomChanged(scale: Int)
-    fun onPageChanged(page: Int, pageCount: Int)
+    /** [spread]: two pages side by side, [page] being the left one. */
+    fun onPageChanged(page: Int, pageCount: Int, spread: Boolean)
     fun onWebError(message: String)
     fun onThumbnail(pngDataUrl: String)
 }
@@ -90,37 +101,98 @@ object ScoreOrigin {
 }
 
 /**
- * Hosts the score page. [commands] are forwarded to JavaScript in order;
- * [scoreBytes] supplies the MusicXML document requested by `grulla.load()`.
+ * Owns the score WebView and keeps it alive while the user is elsewhere in the
+ * app (the library, settings) and across rotation, so returning to a score is
+ * instant instead of starting Verovio and laying out the score again.
+ *
+ * The WebView is created on a [MutableContextWrapper]: while it is on screen its
+ * base context is the activity, otherwise the application, so no activity leaks.
+ */
+class ScoreWebViewHost(
+    context: Context,
+    private val callbacks: ScoreWebCallbacks,
+    private val scoreBytes: () -> ByteArray?,
+) {
+    private val app = context.applicationContext
+    private val contextWrapper = MutableContextWrapper(app)
+    private val theme = ThemeHolder()
+
+    /** Bumped when the render process died and a new WebView replaced the old one. */
+    var generation by mutableIntStateOf(0)
+        private set
+
+    private var current: WebView? = null
+
+    /** The WebView, attached to [activity]'s context. */
+    fun obtain(activity: Context): WebView {
+        contextWrapper.baseContext = activity
+        val webView = current ?: createScoreWebView(contextWrapper, callbacks, scoreBytes, theme, onRendererGone = ::replace)
+        current = webView
+        (webView.parent as? ViewGroup)?.removeView(webView)
+        return webView
+    }
+
+    /** The screen showing the WebView went away; keep it, but let go of the activity. */
+    fun detach(webView: WebView) {
+        if (webView !== current) return
+        (webView.parent as? ViewGroup)?.removeView(webView)
+        contextWrapper.baseContext = app
+    }
+
+    fun setNight(night: Boolean) {
+        theme.night = night
+        current?.let { applyTheme(it) }
+    }
+
+    fun run(command: WebCommand) {
+        current?.evaluateJavascript(command.toJavaScript(), null)
+    }
+
+    fun destroy() {
+        current?.let {
+            (it.parent as? ViewGroup)?.removeView(it)
+            it.destroy()
+        }
+        current = null
+    }
+
+    private fun replace() {
+        val old = current
+        current = null
+        (old?.parent as? ViewGroup)?.removeView(old)
+        old?.destroy()
+        generation++
+    }
+
+    private fun applyTheme(webView: WebView) {
+        webView.setBackgroundColor((if (theme.night) NightColors.paper else DayColors.paper).toArgb())
+        webView.evaluateJavascript(theme.script(), null)
+    }
+}
+
+/**
+ * Shows the score page of [host]. [commands] are forwarded to JavaScript in order
+ * while the view is on screen (they wait in the flow's buffer otherwise).
  */
 @Composable
 fun ScoreView(
+    host: ScoreWebViewHost,
     commands: Flow<WebCommand>,
-    callbacks: ScoreWebCallbacks,
-    scoreBytes: () -> ByteArray?,
     night: Boolean,
     modifier: Modifier = Modifier,
 ) {
     val context = LocalContext.current
-    val theme = remember { ThemeHolder() }
-    theme.night = night
-    // Bumped when the WebView's render process dies; a fresh WebView then reloads the score.
-    var generation by remember { mutableIntStateOf(0) }
-    val webView = remember(generation) {
-        createScoreWebView(context, callbacks, scoreBytes, theme, onRendererGone = { generation++ })
-    }
+    val generation = host.generation
+    val webView = remember(generation, context) { host.obtain(context) }
     key(generation) {
         AndroidView(factory = { webView }, modifier = modifier)
     }
-    LaunchedEffect(webView, night) {
-        webView.setBackgroundColor((if (night) NightColors.paper else DayColors.paper).toArgb())
-        webView.evaluateJavascript(theme.script(), null)
-    }
+    LaunchedEffect(webView, night) { host.setNight(night) }
     LaunchedEffect(webView) {
-        commands.collect { command -> webView.evaluateJavascript(command.toJavaScript(), null) }
+        commands.collect { command -> host.run(command) }
     }
     DisposableEffect(webView) {
-        onDispose { webView.destroy() }
+        onDispose { host.detach(webView) }
     }
 }
 
@@ -207,6 +279,9 @@ private class ScoreHostBridge(private val callbacks: ScoreWebCallbacks) {
     fun onReady(version: String) = onMain { onWebReady(version) }
 
     @JavascriptInterface
+    fun onFirstPage() = onMain { onFirstPage() }
+
+    @JavascriptInterface
     fun onScoreLoaded(payloadJson: String) = onMain { onScoreRendered(payloadJson) }
 
     @JavascriptInterface
@@ -219,7 +294,7 @@ private class ScoreHostBridge(private val callbacks: ScoreWebCallbacks) {
     fun onZoomChanged(scale: Int) = onMain { onZoomChanged(scale) }
 
     @JavascriptInterface
-    fun onPageChanged(page: Int, pageCount: Int) = onMain { onPageChanged(page, pageCount) }
+    fun onPageChanged(page: Int, pageCount: Int, spread: Boolean) = onMain { onPageChanged(page, pageCount, spread) }
 
     @JavascriptInterface
     fun onThumbnail(pngDataUrl: String) = onMain { onThumbnail(pngDataUrl) }

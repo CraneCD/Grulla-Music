@@ -24,6 +24,9 @@ import com.grulla.music.core.playback.PlaybackState
 import com.grulla.music.core.playback.TimeRange
 import com.grulla.music.core.playback.Transport
 import com.grulla.music.score.LayoutMode
+import androidx.compose.ui.unit.dp
+import com.grulla.music.settings.PlayerPreferences
+import java.lang.reflect.Proxy
 import org.junit.Rule
 import org.junit.Test
 import org.junit.runner.RunWith
@@ -66,26 +69,9 @@ class ScreenshotTest {
         settings = ScoreSettings(metronome = true),
     )
 
-    private object NoActions : ScoreActions {
-        override fun togglePlay() = Unit
-        override fun stop() = Unit
-        override fun setTempoPercent(percent: Int) = Unit
-        override fun setCountIn(enabled: Boolean) = Unit
-        override fun setMetronome(enabled: Boolean) = Unit
-        override fun setLoopEnabled(enabled: Boolean) = Unit
-        override fun clearLoop() = Unit
-        override fun explainLoop() = Unit
-        override fun setFollow(enabled: Boolean) = Unit
-        override fun showPage(page: Int) = Unit
-        override fun seekToFraction(fraction: Float) = Unit
-        override fun zoomIn() = Unit
-        override fun zoomOut() = Unit
-        override fun toggleLayoutMode() = Unit
-        override fun toggleMute(track: Int) = Unit
-        override fun toggleSolo(track: Int) = Unit
-        override fun stopListening() = Unit
-        override fun skipNote() = Unit
-    }
+    /** Every action does nothing (the screens are only drawn). */
+    private val NoActions: ScoreActions =
+        Proxy.newProxyInstance(ScoreActions::class.java.classLoader, arrayOf(ScoreActions::class.java)) { _, _, _ -> null } as ScoreActions
 
     private val mixer = listOf(MixerChannel(1, "P1", "Piano – upper staff"), MixerChannel(2, "P1", "Piano – lower staff"))
 
@@ -157,11 +143,39 @@ class ScreenshotTest {
     }
 
     @Test
+    @Config(qualifiers = "w844dp-h390dp-xxhdpi")
+    fun scoreLandscapePhone() = capture("score-landscape-phone", ThemeMode.LIGHT) {
+        ScoreScreenContent(scoreUi.copy(silent = true), playing, BarInfo(5, 16), NoActions, {}, {}, {}, dockLayout = DockLayout.Compact) {
+            ScoreImage("score-day.png", it)
+        }
+    }
+
+    @Test
+    @Config(qualifiers = "w1280dp-h800dp-xhdpi")
+    fun scoreTabletSpread() = capture("score-tablet-spread", ThemeMode.LIGHT) {
+        val ui = scoreUi.copy(layoutMode = LayoutMode.PAGE, page = 3, pageCount = 6, spread = true)
+        ScoreScreenContent(ui, playing, BarInfo(9, 16), NoActions, {}, {}, {}, dockLayout = DockLayout.Wide) {
+            ScoreImage("score-spread.png", it)
+        }
+    }
+
+    @Test
+    @Config(qualifiers = "w720dp-h900dp-xhdpi")
+    fun scoreTabletop() = capture("score-tabletop", ThemeMode.DARK) {
+        ScoreScreenContent(scoreUi.copy(loopLabel = null), playing.copy(loop = null, loopEnabled = false), BarInfo(5, 16), NoActions, {}, {}, {},
+            dockLayout = DockLayout.Lower(430.dp)) {
+            ScoreImage("score-night.png", it)
+        }
+    }
+
+    @Test
     fun settingsDay() = capture("settings-day", ThemeMode.LIGHT) {
         SettingsContent(
             audio = AudioState(choice = EngineChoice.FLUIDSYNTH, status = "FluidSynth · 48 kHz", busy = false, fluidSynthSupported = true),
             themeMode = ThemeMode.SYSTEM,
             onThemeMode = {},
+            player = PlayerPreferences(earlyPageTurn = true),
+            onPlayer = {},
             onEngine = {},
             onChooseSoundFont = {},
             onBundledSoundFont = {},
@@ -175,6 +189,8 @@ class ScreenshotTest {
             audio = AudioState(choice = EngineChoice.FLUIDSYNTH, status = "FluidSynth · 48 kHz", busy = false, fluidSynthSupported = true),
             themeMode = ThemeMode.DARK,
             onThemeMode = {},
+            player = PlayerPreferences(),
+            onPlayer = {},
             onEngine = {},
             onChooseSoundFont = {},
             onBundledSoundFont = {},

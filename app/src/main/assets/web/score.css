@@ -73,6 +73,21 @@ body.mode-page .page {
   min-height: 100vh;
 }
 
+/* Two pages side by side (wide screens in landscape). */
+body.spread #score {
+  display: flex;
+  gap: 8px;
+}
+
+body.spread .page {
+  flex: 1 1 0;
+  min-width: 0;
+}
+
+body.spread .page + .page {
+  margin-top: 0;
+}
+
 /* Notes sounding now (playback). */
 .playing {
   color: var(--crown);

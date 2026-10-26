@@ -95,6 +95,7 @@ dependencies {
     implementation(libs.androidx.lifecycle.viewmodel.compose)
     implementation(libs.androidx.lifecycle.runtime.compose)
     implementation(libs.androidx.webkit)
+    implementation(libs.androidx.window)
     implementation(libs.kotlinx.coroutines.android)
 
     testImplementation(libs.junit)

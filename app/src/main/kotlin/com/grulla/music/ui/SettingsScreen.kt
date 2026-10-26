@@ -16,6 +16,7 @@ import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.selection.selectable
 import androidx.compose.foundation.selection.selectableGroup
+import androidx.compose.foundation.selection.toggleable
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.HorizontalDivider
@@ -23,6 +24,7 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.RadioButton
+import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
@@ -34,11 +36,14 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.grulla.music.audio.AudioEngine
 import com.grulla.music.audio.AudioState
 import com.grulla.music.audio.EngineChoice
+import com.grulla.music.settings.PlayerPreferences
+import com.grulla.music.settings.PlayerSettings
 
 @Composable
-fun SettingsScreen(audio: AudioEngine, appearance: AppearanceSettings, onBack: () -> Unit) {
+fun SettingsScreen(audio: AudioEngine, appearance: AppearanceSettings, player: PlayerSettings, onBack: () -> Unit) {
     val state by audio.state.collectAsStateWithLifecycle()
     val mode by appearance.mode.collectAsStateWithLifecycle()
+    val playerPreferences by player.preferences.collectAsStateWithLifecycle()
     val pickSoundFont = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
         if (uri != null) audio.importSoundFont(uri)
     }
@@ -46,6 +51,8 @@ fun SettingsScreen(audio: AudioEngine, appearance: AppearanceSettings, onBack: (
         audio = state,
         themeMode = mode,
         onThemeMode = appearance::setMode,
+        player = playerPreferences,
+        onPlayer = player::update,
         onEngine = audio::setChoice,
         onChooseSoundFont = { pickSoundFont.launch(arrayOf("application/octet-stream", "audio/x-soundfont", "audio/sf2", "*/*")) },
         onBundledSoundFont = audio::useDefaultSoundFont,
@@ -58,6 +65,8 @@ fun SettingsContent(
     audio: AudioState,
     themeMode: ThemeMode,
     onThemeMode: (ThemeMode) -> Unit,
+    player: PlayerPreferences,
+    onPlayer: ((PlayerPreferences) -> PlayerPreferences) -> Unit,
     onEngine: (EngineChoice) -> Unit,
     onChooseSoundFont: () -> Unit,
     onBundledSoundFont: () -> Unit,
@@ -94,6 +103,19 @@ fun SettingsContent(
                     Choice("Always day", "Paper and ink.", themeMode == ThemeMode.LIGHT) { onThemeMode(ThemeMode.LIGHT) }
                     Choice("Always night", "A dark page with light notes, for low light.", themeMode == ThemeMode.DARK) { onThemeMode(ThemeMode.DARK) }
                 }
+            }
+
+            Section("Reading") {
+                Toggle(
+                    "Turn pages on the last bar",
+                    "In page view, show the next page while the last bar of this one plays.",
+                    player.earlyPageTurn,
+                ) { on -> onPlayer { it.copy(earlyPageTurn = on) } }
+                Toggle(
+                    "Arrow keys turn pages",
+                    "For Bluetooth page-turn pedals. Page Up and Page Down always turn pages.",
+                    player.arrowKeysTurnPages,
+                ) { on -> onPlayer { it.copy(arrowKeysTurnPages = on) } }
             }
 
             Section("Sound") {
@@ -156,6 +178,24 @@ private fun Section(title: String, content: @Composable () -> Unit) {
         SheetCard(Modifier.fillMaxWidth()) {
             Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) { content() }
         }
+    }
+}
+
+@Composable
+private fun Toggle(title: String, detail: String, checked: Boolean, onChange: (Boolean) -> Unit) {
+    val c = Grulla.colors
+    Row(
+        Modifier
+            .fillMaxWidth()
+            .toggleable(value = checked, role = Role.Switch, onValueChange = onChange)
+            .padding(vertical = 6.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Column(Modifier.weight(1f).padding(end = 12.dp)) {
+            Text(title, style = MaterialTheme.typography.bodyLarge, color = c.ink)
+            Text(detail, style = MaterialTheme.typography.bodySmall, color = c.graphite)
+        }
+        Switch(checked = checked, onCheckedChange = null)
     }
 }
 

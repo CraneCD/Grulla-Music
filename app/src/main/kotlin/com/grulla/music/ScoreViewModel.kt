@@ -32,6 +32,7 @@ import com.grulla.music.score.LayoutMode
 import com.grulla.music.score.ScoreFiles
 import com.grulla.music.score.ScoreOrigin
 import com.grulla.music.score.ScoreWebCallbacks
+import com.grulla.music.score.ScoreWebViewHost
 import com.grulla.music.score.WebCommand
 import com.grulla.music.ui.BarInfo
 import com.grulla.music.ui.ScoreActions
@@ -62,6 +63,10 @@ data class ScoreUiState(
     val layoutMode: LayoutMode = LayoutMode.CONTINUOUS,
     val page: Int = 1,
     val pageCount: Int = 0,
+    /** Page view shows two pages side by side ([page] is the left one). */
+    val spread: Boolean = false,
+    /** All parts silent: the score scrolls at the tempo (with the metronome, if on) for hands-free reading. */
+    val silent: Boolean = false,
     /** Scroll / turn pages automatically to keep the playing notes on screen. */
     val follow: Boolean = true,
     /** Short, non-error message (e.g. how to finish setting a loop). */
@@ -113,12 +118,18 @@ class ScoreViewModel(application: Application) :
     private val commandChannel = Channel<WebCommand>(Channel.UNLIMITED)
     val webCommands: Flow<WebCommand> = commandChannel.receiveAsFlow()
 
+    /** The score's WebView, kept while the user visits the library or settings. */
+    val webHost = ScoreWebViewHost(application, this, ::currentScoreBytes)
+
     /** UTF-8 MusicXML of the current score, served to the WebView (read from a WebView thread). */
     @Volatile
     private var scoreBytes: ByteArray? = null
     private var scoreVersion = 0
     private var webReady = false
     private var openJob: Job? = null
+
+    /** URI of the score in the WebView, so reopening it from the library is instant. */
+    private var currentUri: String? = null
 
     /** Library entry of the open score; its settings are saved as they change. */
     private val entryId = MutableStateFlow<String?>(null)
@@ -140,6 +151,9 @@ class ScoreViewModel(application: Application) :
 
     init {
         autosaveSettings()
+        viewModelScope.launch {
+            app.player.preferences.collect { commandChannel.trySend(WebCommand.SetOptions(earlyTurn = it.earlyPageTurn)) }
+        }
     }
 
     fun currentScoreBytes(): ByteArray? = scoreBytes
@@ -164,6 +178,11 @@ class ScoreViewModel(application: Application) :
     }
 
     private fun open(uri: String) {
+        if (uri == currentUri && rendered != null && mutableUi.value.error == null) {
+            // Still laid out in the kept WebView: just show it again.
+            viewModelScope.launch { library.opened(uri, mutableUi.value.title, mutableUi.value.composer) }
+            return
+        }
         stopListening()
         saveSettingsNow()
         openJob?.cancel()
@@ -180,6 +199,7 @@ class ScoreViewModel(application: Application) :
                 return@launch
             }
             val title = score.title ?: name.ifBlank { "Score" }
+            currentUri = uri
             val entry = library.opened(uri, title, score.composer)
             entryId.value = entry.id
             savedSettings = entry.settings
@@ -210,6 +230,8 @@ class ScoreViewModel(application: Application) :
                 pageCount = 0,
                 mixer = emptyList(),
                 mix = MixState(),
+                silent = false,
+                spread = false,
                 scale = settings.scale ?: DEFAULT_SCALE,
                 layoutMode = if (settings.pageLayout == true) LayoutMode.PAGE else LayoutMode.CONTINUOUS,
                 follow = settings.follow,
@@ -314,8 +336,13 @@ class ScoreViewModel(application: Application) :
 
     override fun onWebReady(verovioVersion: String) {
         webReady = true
+        commandChannel.trySend(WebCommand.SetOptions(earlyTurn = app.player.preferences.value.earlyPageTurn))
         // Also covers a re-created WebView: it starts empty, so render the current score again.
         sendLoad()
+    }
+
+    override fun onFirstPage() {
+        mutableUi.update { it.copy(loading = false) }
     }
 
     override fun onScoreRendered(payloadJson: String) {
@@ -391,8 +418,8 @@ class ScoreViewModel(application: Application) :
         mutableUi.update { it.copy(scale = scale) }
     }
 
-    override fun onPageChanged(page: Int, pageCount: Int) {
-        mutableUi.update { it.copy(page = page, pageCount = pageCount) }
+    override fun onPageChanged(page: Int, pageCount: Int, spread: Boolean) {
+        mutableUi.update { it.copy(page = page, pageCount = pageCount, spread = spread) }
     }
 
     override fun onWebError(message: String) {
@@ -554,6 +581,11 @@ class ScoreViewModel(application: Application) :
         mutableUi.update { it.copy(notice = null, loopLabel = null) }
     }
 
+    override fun setSilent(silent: Boolean) {
+        mutableUi.update { it.copy(silent = silent) }
+        updateMix { it }
+    }
+
     override fun toggleMute(track: Int) = updateMix { it.toggleMute(track) }
 
     override fun toggleSolo(track: Int) = updateMix { it.toggleSolo(track) }
@@ -561,7 +593,8 @@ class ScoreViewModel(application: Application) :
     private fun updateMix(change: (MixState) -> MixState) {
         mutableUi.update { it.copy(mix = change(it.mix)) }
         val state = mutableUi.value
-        playback.setSilencedTracks(state.mix.silencedTracks(state.mixer))
+        val everything = rendered?.midi?.tracks?.indices?.toSet().orEmpty()
+        playback.setSilencedTracks(if (state.silent) everything else state.mix.silencedTracks(state.mixer))
     }
 
     override fun setFollow(enabled: Boolean) = mutableUi.update { it.copy(follow = enabled) }
@@ -587,6 +620,11 @@ class ScoreViewModel(application: Application) :
         commandChannel.trySend(WebCommand.ShowPage(page))
     }
 
+    /** Page-turn pedal or the page buttons: +1 next, -1 previous. */
+    override fun turnPage(direction: Int) {
+        commandChannel.trySend(WebCommand.Turn(direction))
+    }
+
     fun dismissError() = mutableUi.update { it.copy(error = null) }
 
     fun dismissNotice() = mutableUi.update { it.copy(notice = null) }
@@ -603,6 +641,7 @@ class ScoreViewModel(application: Application) :
         saveSettingsNow()
         playback.release()
         commandChannel.close()
+        webHost.destroy()
     }
 
     companion object {
