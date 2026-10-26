@@ -1,0 +1,127 @@
+{
+ "version": 1,
+ "sources": {
+  "lieder": {
+   "name": "OpenScore Lieder",
+   "url": "https://github.com/OpenScore/Lieder",
+   "license": "CC0 1.0"
+  },
+  "quartets": {
+   "name": "OpenScore String Quartets",
+   "url": "https://github.com/OpenScore/StringQuartets",
+   "license": "CC0 1.0"
+  },
+  "pdmx": {
+   "name": "PDMX (from MuseScore.com)",
+   "url": "https://zenodo.org/records/15571083",
+   "license": "Public domain / CC0 (dataset CC BY 4.0)"
+  }
+ },
+ "scores": [
+  {
+   "id": "lieder-6480111",
+   "t": "Oh! Woman, Sweet Woman",
+   "c": "Alfred Cellier",
+   "i": [
+    "Voice",
+    "Piano"
+   ],
+   "p": 2,
+   "b": 50,
+   "src": "lieder",
+   "lic": "CC0",
+   "f": "scores/lieder/11/lieder-6480111.mxl",
+   "kb": 22,
+   "link": "https://musescore.com/score/6480111",
+   "lang": "EN"
+  },
+  {
+   "id": "lieder-6644591",
+   "t": "Bouton de Rose (To Rosa)",
+   "c": "Amelia Lehmann",
+   "i": [
+    "Voice",
+    "Piano"
+   ],
+   "p": 2,
+   "b": 79,
+   "src": "lieder",
+   "lic": "CC0",
+   "f": "scores/lieder/91/lieder-6644591.mxl",
+   "kb": 24,
+   "link": "https://musescore.com/score/6644591",
+   "lang": "FR"
+  },
+  {
+   "id": "quartets-8811375",
+   "t": "String Quartet No.1",
+   "c": "Alexander Borodin",
+   "i": [
+    "Violin",
+    "Viola",
+    "Cello"
+   ],
+   "p": 4,
+   "b": 2022,
+   "src": "quartets",
+   "lic": "CC0",
+   "f": "scores/quartets/75/quartets-8811375.mxl",
+   "kb": 381,
+   "link": "https://musescore.com/openscore-string-quartets/scores/8811375",
+   "set": "String Quartet No.1"
+  },
+  {
+   "id": "pdmx-5897630",
+   "t": "Natal! Natal!",
+   "c": "Adolphe Adam",
+   "i": [
+    "Piano"
+   ],
+   "p": 2,
+   "b": 27,
+   "src": "pdmx",
+   "lic": "CC0",
+   "f": "scores/pdmx/30/pdmx-5897630.mxl",
+   "kb": 7,
+   "link": "https://musescore.com/score/5897630",
+   "s": 51,
+   "d": 2
+  },
+  {
+   "id": "pdmx-5895804",
+   "t": "O Helga Natt",
+   "c": "Adolphe Adam",
+   "i": [
+    "Voice",
+    "Piano"
+   ],
+   "p": 2,
+   "b": 32,
+   "src": "pdmx",
+   "lic": "CC0",
+   "f": "scores/pdmx/04/pdmx-5895804.mxl",
+   "kb": 13,
+   "link": "https://musescore.com/score/5895804",
+   "s": 248,
+   "d": 3,
+   "r": 4.5
+  },
+  {
+   "id": "pdmx-5851818",
+   "t": "O Holly Night",
+   "c": "Adolphe Adam",
+   "i": [
+    "Piano"
+   ],
+   "p": 1,
+   "b": 54,
+   "src": "pdmx",
+   "lic": "CC0",
+   "f": "scores/pdmx/18/pdmx-5851818.mxl",
+   "kb": 8,
+   "link": "https://musescore.com/score/5851818",
+   "s": 84,
+   "d": 2
+  }
+ ]
+}

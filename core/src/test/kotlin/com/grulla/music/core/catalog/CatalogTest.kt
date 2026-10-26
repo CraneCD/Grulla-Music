@@ -1,5 +1,6 @@
 package com.grulla.music.core.catalog
 
+import com.grulla.music.core.Fixtures
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertTrue
@@ -49,5 +50,17 @@ class CatalogTest {
         assertEquals("Piano", catalog.instruments.first())
         assertEquals(setOf("Piano", "Violin", "Voice", "Guitar"), catalog.instruments.toSet())
         assertEquals("PDMX", catalog.sources["pdmx"]?.name)
+    }
+
+    @Test
+    fun `reads entries of the published catalogue`() {
+        val real = Catalog.decode(Fixtures.text("catalog-sample.json"))
+        assertEquals(setOf("lieder", "quartets", "pdmx"), real.sources.keys)
+        assertEquals(6, real.scores.size)
+        val song = real.scores.first { it.src == "lieder" }
+        assertTrue(song.file.startsWith("scores/lieder/") && song.file.endsWith(".mxl"))
+        assertEquals("CC0", song.lic)
+        assertTrue("Voice" in song.instruments)
+        assertEquals(listOf("Natal! Natal!"), real.search("natal").map { it.title })
     }
 }

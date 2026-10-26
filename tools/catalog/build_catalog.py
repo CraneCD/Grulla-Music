@@ -76,20 +76,37 @@ def clean(text):
 
 
 def score_facts(root):
-    """Title, part names, measure count from the MusicXML document."""
-    title = ""
-    for path in ("work/work-title", "movement-title"):
+    """
+    Title, collection, parts and measure count from the MusicXML document. The movement
+    title names the piece itself (a song); the work title often names its collection
+    (the song cycle), so the movement title wins and the work becomes the collection.
+    """
+    def text(path):
         el = root.find(path)
-        if el is not None and clean(el.text):
-            title = clean(el.text)
-            break
+        return clean(el.text) if el is not None and el.text else ""
+    work, movement = text("work/work-title"), text("movement-title")
+    if re.fullmatch(r"\W*(no\.?\s*)?\d+[a-z]?\W*", movement, re.IGNORECASE):
+        # A bare number names the piece only within its work: "Op. 39 – 21".
+        return (f"{work} – {movement}" if work else ""), None, parts_of(root), bars_of(root)
+    title = movement or work
+    collection = work if movement and work and work != movement else None
+    return title, collection, parts_of(root), bars_of(root)
+
+
+def parts_of(root):
     parts = []
     for part in root.findall("part-list/score-part"):
-        name = part.find("part-name")
-        parts.append(clean(name.text) if name is not None and name.text else "")
+        name = clean(part.findtext("part-name") or "")
+        if not name or name.lower() in ("music", "staff", "part", "mus", "instrument"):
+            name = clean(part.findtext("score-instrument/instrument-name") or "")
+        program = part.findtext("midi-instrument/midi-program")
+        parts.append((name, int(program) if program and program.strip().isdigit() else None))
+    return parts
+
+
+def bars_of(root):
     first = root.find("part")
-    bars = len(first.findall("measure")) if first is not None else 0
-    return title, parts, bars
+    return len(first.findall("measure")) if first is not None else 0
 
 
 INSTRUMENT_WORDS = {
@@ -106,19 +123,43 @@ INSTRUMENT_WORDS = {
 }
 
 
+# General MIDI program (1-based, as in MusicXML) -> family, for parts without a useful name.
+GM_FAMILIES = [
+    (1, 8, "Piano"), (7, 7, "Harpsichord"), (17, 21, "Organ"), (22, 24, "Accordion"), (25, 32, "Guitar"),
+    (33, 40, "Double bass"), (41, 41, "Violin"), (42, 42, "Viola"), (43, 43, "Cello"), (44, 44, "Double bass"),
+    (46, 46, "Violin"), (47, 47, "Harp"), (49, 52, "Strings"), (53, 55, "Voice"), (57, 57, "Trumpet"),
+    (58, 58, "Trombone"), (59, 59, "Tuba"), (60, 60, "Trumpet"), (61, 61, "Horn"), (65, 68, "Saxophone"),
+    (69, 70, "Oboe"), (71, 71, "Bassoon"), (72, 72, "Clarinet"), (73, 74, "Flute"), (75, 75, "Recorder"),
+    (76, 80, "Flute"),
+]
+
+
 def instruments(parts):
-    """Plain instrument families from part names, e.g. ["Voice", "Piano"]."""
+    """Plain instrument families from part names (or MIDI programs), e.g. ["Voice", "Piano"]."""
     found = []
-    for name in parts:
+    for name, program in parts:
         low = " " + re.sub(r"[^a-z ]+", " ", unicodedata.normalize("NFD", name.lower())) + " "
         match = None
         for word, family in sorted(INSTRUMENT_WORDS.items(), key=lambda kv: -len(kv[0])):
             if f" {word} " in low or (len(word) > 4 and word in low):
                 match = family
                 break
+        if match is None and re.fullmatch(r" (s|a|t|b|sa|tb|satb|s a t b)( \d)? ", low):
+            match = "Voice"
+        if match is None and program is not None:
+            match = next((family for lo, hi, family in GM_FAMILIES if lo <= program <= hi), None)
         if match and match not in found:
             found.append(match)
     return found
+
+
+def tidy_title(title, composer):
+    """Drops a trailing " - Composer" that MuseScore uploads often add to titles."""
+    surname = composer.split()[-1].lower() if composer and composer != "Traditional" else None
+    match = re.match(r"^(.*\S)\s+[-–—]\s+(.+)$", title)
+    if match and surname and surname in match.group(2).lower():
+        return match.group(1)
+    return title
 
 
 def difficulty(bars, notes_per_bar):
@@ -262,8 +303,10 @@ def build(work, out):
             continue
         if root.tag not in ("score-partwise", "score-timewise"):
             continue
-        title, parts, bars = score_facts(root)
-        title = title if title and title.lower() not in ("title", "untitled", "score") else item["fallback_title"]
+        title, collection, parts, bars = score_facts(root)
+        useless = not title or title.lower() in ("title", "untitled", "score") or re.fullmatch(r"[\W\d]*", title)
+        title = item["fallback_title"] if useless else title
+        title = tidy_title(title, item["composer"])
         if not title:
             continue
         rel = f"scores/{item['src']}/{shard(item['id'])}/{item['id']}.mxl"
@@ -287,8 +330,8 @@ def build(work, out):
             entry["d"] = level
         if item.get("rating"):
             entry["r"] = round(item["rating"], 1)
-        if item.get("set"):
-            entry["set"] = item["set"]
+        if collection or item.get("set"):
+            entry["set"] = collection or item["set"]
         if item.get("lang"):
             entry["lang"] = item["lang"]
         entries.append(entry)
@@ -323,12 +366,24 @@ def build(work, out):
 
 
 def verovio_check(paths, work):
-    listing = os.path.join(work, "check.txt")
-    open(listing, "w").write("\n".join(paths))
-    result = subprocess.run(["node", os.path.join(HERE, "check_scores.js"), listing], capture_output=True, text=True, timeout=36000)
-    if result.returncode != 0:
-        sys.exit("Verovio check failed: " + result.stderr[-2000:])
-    return set(line for line in result.stdout.splitlines() if line)
+    """Paths that render in Verovio. Results are cached by file size and time, so rebuilds only check new files."""
+    cache_path = os.path.join(work, "verovio-checked.json")
+    cache = json.load(open(cache_path)) if os.path.isfile(cache_path) else {}
+    def key(path):
+        st = os.stat(path)
+        return f"{st.st_size}:{int(st.st_mtime)}"
+    todo = [p for p in paths if cache.get(p, {}).get("key") != key(p)]
+    if todo:
+        listing = os.path.join(work, "check.txt")
+        open(listing, "w").write("\n".join(todo))
+        result = subprocess.run(["node", os.path.join(HERE, "check_scores.js"), listing], capture_output=True, text=True, timeout=36000)
+        if result.returncode != 0:
+            sys.exit("Verovio check failed: " + result.stderr[-2000:])
+        ok = set(line for line in result.stdout.splitlines() if line)
+        for p in todo:
+            cache[p] = {"key": key(p), "ok": p in ok}
+        json.dump(cache, open(cache_path, "w"))
+    return set(p for p in paths if cache.get(p, {}).get("ok"))
 
 
 if __name__ == "__main__":

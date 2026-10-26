@@ -281,6 +281,24 @@ private fun instrumentName(family: String): String {
         "Recorder" -> R.string.instrument_recorder
         "Trumpet" -> R.string.instrument_trumpet
         "Harp" -> R.string.instrument_harp
+        "Strings" -> R.string.instrument_strings
+        "Horn" -> R.string.instrument_horn
+        "Trombone" -> R.string.instrument_trombone
+        "Oboe" -> R.string.instrument_oboe
+        "Bassoon" -> R.string.instrument_bassoon
+        "Tuba" -> R.string.instrument_tuba
+        "Double bass" -> R.string.instrument_double_bass
+        "Saxophone" -> R.string.instrument_saxophone
+        "Percussion" -> R.string.instrument_percussion
+        "Harpsichord" -> R.string.instrument_harpsichord
+        "Accordion" -> R.string.instrument_accordion
+        "Mandolin" -> R.string.instrument_mandolin
+        "Lute" -> R.string.instrument_lute
+        "Bagpipes" -> R.string.instrument_bagpipes
+        "Whistle" -> R.string.instrument_whistle
+        "Bells" -> R.string.instrument_bells
+        "Banjo" -> R.string.instrument_banjo
+        "Ukulele" -> R.string.instrument_ukulele
         else -> null
     }
     return if (id != null) stringResource(id) else family

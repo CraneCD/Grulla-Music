@@ -14,6 +14,7 @@
 | M7 | Practice coach: speed trainer; Wait for me (the accompaniment waits for you); chord checking in Follow me; practice log with trouble bars |
 | M8 | Score tools: transpose and concert pitch; instrument and volume per part; annotations (pencil, fingerings, breath marks); library search, sorting, setlists and folder import |
 | M9 | Release: MIT license for the app's code; English and Spanish (per-app language); TalkBack labels and headings, text up to 200 %, 48 dp targets; R8, signing config, App Bundle with ABI splits; targetSdk 37; Play listing and privacy policy (`docs/play-store`, `docs/PRIVACY.md`) |
+| Find scores | Online catalogue of 13,458 free scores (OpenScore Lieder and String Quartets, CC0; public-domain PDMX selection), built by `tools/catalog`, hosted on the `catalog` branch; search, filters and download into the library |
 
 M1–M5 and the design have been verified on a device; M6–M9 are covered by the unit,
 screenshot, native and browser tests and wait for a device run.

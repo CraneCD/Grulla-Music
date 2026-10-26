@@ -6,7 +6,7 @@ listens to you play and moves on only when you play the right note; "Wait for me
 other parts and waits for you. It covers the same ground as MuseScore's player, but uses no
 MuseScore code (see [Licensing](#licensing)). In English and Spanish.
 
-**Status:** milestones 1–9 are done (version 1.0.0). See [docs/ROADMAP.md](docs/ROADMAP.md).
+**Status:** milestones 1–9 are done, plus Find scores (version 1.1.0). See [docs/ROADMAP.md](docs/ROADMAP.md).
 
 ## Features
 

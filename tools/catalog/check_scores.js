@@ -6,14 +6,15 @@
  *
  *   node check_scores.js listing.txt > ok.txt
  *
- * Files are checked in child processes, a batch at a time, so that a file that
- * crashes Verovio only costs its batch, which is then retried file by file.
+ * Files are checked in child processes (one per CPU), a batch at a time, so that a
+ * file that crashes Verovio only costs its batch, which is then retried file by file.
  */
 'use strict';
 
 const fs = require('fs');
 const path = require('path');
-const { spawnSync } = require('child_process');
+const os = require('os');
+const { spawn } = require('child_process');
 
 const VEROVIO = path.resolve(__dirname, '../../app/src/main/assets/verovio/verovio-toolkit-wasm.js');
 const BATCH = 100;
@@ -24,32 +25,43 @@ if (process.argv[2] === '--child') {
   main(process.argv[2]);
 }
 
-function main(listing) {
+async function main(listing) {
   const files = fs.readFileSync(listing, 'utf8').split('\n').filter(Boolean);
-  for (let i = 0; i < files.length; i += BATCH) {
-    const batch = files.slice(i, i + BATCH);
-    let ok = runChild(batch);
-    if (ok === null) {
-      ok = [];
-      for (const file of batch) {
-        const single = runChild([file]);
-        if (single) ok.push(...single);
+  const batches = [];
+  for (let i = 0; i < files.length; i += BATCH) batches.push(files.slice(i, i + BATCH));
+  let next = 0;
+  let done = 0;
+  const worker = async () => {
+    while (next < batches.length) {
+      const batch = batches[next++];
+      let ok = await runChild(batch);
+      if (ok === null) {
+        ok = [];
+        for (const file of batch) {
+          const single = await runChild([file]);
+          if (single) ok.push(...single);
+        }
       }
+      for (const file of ok) process.stdout.write(file + '\n');
+      done += batch.length;
+      process.stderr.write(`  checked ${done}/${files.length}\n`);
     }
-    for (const file of ok) process.stdout.write(file + '\n');
-    process.stderr.write(`  checked ${Math.min(i + BATCH, files.length)}/${files.length}\n`);
-  }
+  };
+  await Promise.all(Array.from({ length: Math.max(1, os.cpus().length) }, worker));
 }
 
-/** Paths that passed, or null if the child crashed. */
+/** Paths that passed, or null if the child crashed or timed out. */
 function runChild(files) {
-  const result = spawnSync(process.execPath, [__filename, '--child', ...files], {
-    encoding: 'utf8',
-    timeout: 120000 + files.length * 20000,
-    maxBuffer: 64 * 1024 * 1024,
+  return new Promise((resolve) => {
+    const proc = spawn(process.execPath, [__filename, '--child', ...files], { stdio: ['ignore', 'pipe', 'ignore'] });
+    let out = '';
+    proc.stdout.on('data', (chunk) => { out += chunk; });
+    const timer = setTimeout(() => proc.kill('SIGKILL'), 60000 + files.length * 15000);
+    proc.on('close', (code) => {
+      clearTimeout(timer);
+      resolve(code === 0 ? out.split('\n').filter(Boolean) : null);
+    });
   });
-  if (result.status !== 0) return null;
-  return result.stdout.split('\n').filter(Boolean);
 }
 
 function child(files) {
