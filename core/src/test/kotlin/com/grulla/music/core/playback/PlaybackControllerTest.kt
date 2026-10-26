@@ -59,7 +59,12 @@ class PlaybackControllerTest {
             startedAt = null
         }
 
-        override val positionMs: Long get() = offset + (startedAt?.let { now() - it } ?: 0)
+        override val positionMs: Long
+            get() {
+                val raw = offset + (startedAt?.let { now() - it } ?: 0)
+                val (start, end) = loop?.takeIf { supportsLooping } ?: return raw
+                return if (raw < end) raw else (start + (raw - start) % (end - start)).toLong()
+            }
         override val isPlaying: Boolean get() = startedAt != null
         override fun release() = Unit
     }
@@ -68,6 +73,10 @@ class PlaybackControllerTest {
         val segments = mutableListOf<Segment?>()
         val beats = mutableListOf<Int>()
         val errors = mutableListOf<String>()
+        var loopPasses = 0
+        override fun onLoopPass() {
+            loopPasses++
+        }
         override fun onSegmentChanged(segment: Segment?, follow: Boolean) {
             segments += segment
         }
@@ -281,6 +290,49 @@ class PlaybackControllerTest {
         assertEquals(2, h.player.loads)
         assertEquals(Transport.PLAYING, h.controller.state.value.transport, "no count-in on repeats")
         assertNear(loop.startMs + 500, h.controller.state.value.positionMs)
+    }
+
+    @Test
+    fun `loop passes are reported, with and without seamless looping`() = runTest {
+        val restarting = harness()
+        restarting.controller.setLoop(loopOf(4, 6))
+        restarting.controller.play()
+        advanceTimeBy(LOAD_MS + 1000)
+        restarting.player.onCompletion?.invoke()
+        assertEquals(1, restarting.listener.loopPasses)
+
+        val seamless = harness(looping = true)
+        val loop = loopOf(4, 6)
+        seamless.controller.setLoop(loop)
+        seamless.controller.play()
+        advanceTimeBy(LOAD_MS + ((loop.endMs - loop.startMs) * 2.5).toLong())
+        assertEquals(2, seamless.listener.loopPasses)
+    }
+
+    @Test
+    fun `wait for me holds playback until the hold moves on`() = runTest {
+        val h = harness(looping = true)
+        h.controller.holdAt(3000.0)
+        h.controller.play()
+        advanceTimeBy(LOAD_MS + 4000)
+        assertEquals(Transport.WAITING, h.controller.state.value.transport)
+        assertTrue(h.controller.state.value.isRunning)
+        val waitingAt = h.controller.state.value.positionMs
+        assertTrue(waitingAt in 2850.0..3000.0, "waits just before the hold, at $waitingAt")
+        advanceTimeBy(1000)
+        assertEquals(waitingAt, h.controller.state.value.positionMs, "stays put while waiting")
+
+        h.controller.holdAt(5000.0)
+        assertEquals(Transport.PLAYING, h.controller.state.value.transport)
+        assertEquals(1, h.player.loads, "resumes without reloading")
+        advanceTimeBy(3000)
+        assertEquals(Transport.WAITING, h.controller.state.value.transport)
+        assertNear(4950.0, h.controller.state.value.positionMs, 100.0)
+
+        h.controller.holdAt(null)
+        advanceTimeBy(1000)
+        assertEquals(Transport.PLAYING, h.controller.state.value.transport)
+        assertNear(5900.0, h.controller.state.value.positionMs, 100.0)
     }
 
     @Test

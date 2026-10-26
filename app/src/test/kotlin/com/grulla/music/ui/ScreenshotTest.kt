@@ -12,7 +12,12 @@ import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.test.junit4.createComposeRule
 import androidx.compose.ui.test.onRoot
 import com.github.takahirom.roborazzi.captureRoboImage
+import com.grulla.music.ListenMode
 import com.grulla.music.ListeningState
+import com.grulla.music.TrainerState
+import com.grulla.music.core.practice.ScorePractice
+import com.grulla.music.core.practice.SpeedTrainerSettings
+import java.time.LocalDate
 import com.grulla.music.ScoreUiState
 import com.grulla.music.audio.AudioState
 import com.grulla.music.audio.EngineChoice
@@ -116,7 +121,7 @@ class ScreenshotTest {
 
     @Test
     fun scorePlayingLoopDay() = capture("score-loop-day", ThemeMode.LIGHT) {
-        ScoreScreenContent(scoreUi, playing, BarInfo(5, 16), NoActions, {}, {}, {}) { ScoreImage("score-day.png", it) }
+        ScoreScreenContent(scoreUi, playing, BarInfo(5, 16), NoActions, {}, {}, { _, _ -> }) { ScoreImage("score-day.png", it) }
     }
 
     @Test
@@ -125,27 +130,27 @@ class ScreenshotTest {
             mix = MixState(soloed = setOf(1)),
             listening = ListeningState(expected = "G5", step = 20, total = 63, part = "Piano – upper staff", hearing = "F5", wrong = "F5"),
         )
-        ScoreScreenContent(ui, playing.copy(transport = Transport.PAUSED), BarInfo(6, 16), NoActions, {}, {}, {}) { ScoreImage("score-follow.png", it) }
+        ScoreScreenContent(ui, playing.copy(transport = Transport.PAUSED), BarInfo(6, 16), NoActions, {}, {}, { _, _ -> }) { ScoreImage("score-follow.png", it) }
     }
 
     @Test
     fun scorePlayingNight() = capture("score-night", ThemeMode.DARK) {
         val ui = scoreUi.copy(loopLabel = null)
         val state = playing.copy(positionMs = 17_500.0, tempoPercent = 100, loop = null, loopEnabled = false, metronomeEnabled = true)
-        ScoreScreenContent(ui, state, BarInfo(8, 16), NoActions, {}, {}, {}) { ScoreImage("score-night.png", it) }
+        ScoreScreenContent(ui, state, BarInfo(8, 16), NoActions, {}, {}, { _, _ -> }) { ScoreImage("score-night.png", it) }
     }
 
     @Test
     fun scorePageViewStoppedDay() = capture("score-page-view-day", ThemeMode.LIGHT) {
         val ui = scoreUi.copy(layoutMode = LayoutMode.PAGE, page = 2, pageCount = 8, loopLabel = null)
         val state = PlaybackState(durationMs = 40_000.0, hasScore = true, countInEnabled = true)
-        ScoreScreenContent(ui, state, BarInfo(1, 16), NoActions, {}, {}, {}) { ScoreImage("score-day.png", it) }
+        ScoreScreenContent(ui, state, BarInfo(1, 16), NoActions, {}, {}, { _, _ -> }) { ScoreImage("score-day.png", it) }
     }
 
     @Test
     @Config(qualifiers = "w844dp-h390dp-xxhdpi")
     fun scoreLandscapePhone() = capture("score-landscape-phone", ThemeMode.LIGHT) {
-        ScoreScreenContent(scoreUi.copy(silent = true), playing, BarInfo(5, 16), NoActions, {}, {}, {}, dockLayout = DockLayout.Compact) {
+        ScoreScreenContent(scoreUi.copy(silent = true), playing, BarInfo(5, 16), NoActions, {}, {}, { _, _ -> }, dockLayout = DockLayout.Compact) {
             ScoreImage("score-day.png", it)
         }
     }
@@ -154,7 +159,7 @@ class ScreenshotTest {
     @Config(qualifiers = "w1280dp-h800dp-xhdpi")
     fun scoreTabletSpread() = capture("score-tablet-spread", ThemeMode.LIGHT) {
         val ui = scoreUi.copy(layoutMode = LayoutMode.PAGE, page = 3, pageCount = 6, spread = true)
-        ScoreScreenContent(ui, playing, BarInfo(9, 16), NoActions, {}, {}, {}, dockLayout = DockLayout.Wide) {
+        ScoreScreenContent(ui, playing, BarInfo(9, 16), NoActions, {}, {}, { _, _ -> }, dockLayout = DockLayout.Wide) {
             ScoreImage("score-spread.png", it)
         }
     }
@@ -162,9 +167,47 @@ class ScreenshotTest {
     @Test
     @Config(qualifiers = "w720dp-h900dp-xhdpi")
     fun scoreTabletop() = capture("score-tabletop", ThemeMode.DARK) {
-        ScoreScreenContent(scoreUi.copy(loopLabel = null), playing.copy(loop = null, loopEnabled = false), BarInfo(5, 16), NoActions, {}, {}, {},
+        ScoreScreenContent(scoreUi.copy(loopLabel = null), playing.copy(loop = null, loopEnabled = false), BarInfo(5, 16), NoActions, {}, {}, { _, _ -> },
             dockLayout = DockLayout.Lower(430.dp)) {
             ScoreImage("score-night.png", it)
+        }
+    }
+
+    @Test
+    fun tempoTrainerDay() = capture("tempo-trainer-day", ThemeMode.LIGHT) {
+        val ui = scoreUi.copy(trainer = TrainerState(75, 1, 2, false), trainerSettings = SpeedTrainerSettings(70, 100, 5, 2))
+        ScoreScreenContent(ui, playing.copy(tempoPercent = 75), BarInfo(4, 16), NoActions, {}, {}, { _, _ -> }, openSheet = ScoreSheet.TEMPO) {
+            ScoreImage("score-day.png", it)
+        }
+    }
+
+    @Test
+    fun listenSheetDay() = capture("listen-sheet-day", ThemeMode.LIGHT) {
+        ScoreScreenContent(scoreUi.copy(myTracks = setOf(1)), playing, BarInfo(4, 16), NoActions, {}, {}, { _, _ -> }, openSheet = ScoreSheet.LISTEN) {
+            ScoreImage("score-day.png", it)
+        }
+    }
+
+    @Test
+    fun practiceSheetNight() = capture("practice-sheet-night", ThemeMode.DARK) {
+        var log = ScorePractice().withTime(42 * 60_000L, LocalDate.now()).withTime(65 * 60_000L, LocalDate.now().minusDays(20))
+        repeat(12) { log = log.withLoopPass() }
+        repeat(20) { log = log.withHit(2) }
+        repeat(3) { log = log.withMiss(12).withMiss(7) }
+        repeat(2) { log = log.withHit(12) }
+        repeat(5) { log = log.withHit(7) }
+        ScoreScreenContent(scoreUi, playing, BarInfo(4, 16), NoActions, {}, {}, { _, _ -> }, practice = log, openSheet = ScoreSheet.PRACTICE) {
+            ScoreImage("score-night.png", it)
+        }
+    }
+
+    @Test
+    fun waitForMeDay() = capture("wait-for-me-day", ThemeMode.LIGHT) {
+        val ui = scoreUi.copy(
+            listening = ListeningState(expected = "C4 E4 G4", step = 12, total = 63, part = "Piano – upper staff", mode = ListenMode.WAIT, allChordNotes = true),
+        )
+        ScoreScreenContent(ui, playing.copy(transport = Transport.WAITING), BarInfo(6, 16), NoActions, {}, {}, { _, _ -> }) {
+            ScoreImage("score-follow.png", it)
         }
     }
 

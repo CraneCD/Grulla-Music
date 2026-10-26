@@ -67,8 +67,10 @@ data class FollowState(
 
 /**
  * "Follow me": the score only moves on when the player strikes an expected note.
- * Any note of a chord counts. Striking the note after the expected one is taken
- * as a skipped note, so a missed detection does not leave the player stuck.
+ * Any note of a chord counts, unless [chordsNeedAllNotes]: then a chord moves on
+ * only with a [ChordEvent] (every note heard, see [ChordDetector]). Striking the
+ * note after the expected one is taken as a skipped note, so a missed detection
+ * does not leave the player stuck.
  */
 class FollowController(
     private val score: FollowScore,
@@ -76,6 +78,7 @@ class FollowController(
     private val octaveTolerant: Boolean = true,
     /** After a step, other notes heard this soon are taken as the rest of the chord. */
     private val chordWindowMs: Double = 150.0,
+    private val chordsNeedAllNotes: Boolean = false,
 ) {
     private var index = 0
     private var lastAdvanceAt = Double.NEGATIVE_INFINITY
@@ -88,6 +91,10 @@ class FollowController(
         get() = FollowState(index, score.steps.size, score.steps.getOrNull(index)?.pitches.orEmpty(), lastHeard, lastResult)
 
     val currentStep: FollowStep? get() = score.steps.getOrNull(index)
+
+    /** The chord to check every note of, when the current step is one and chords need all notes. */
+    val expectedChord: Set<Int>?
+        get() = currentStep?.pitches?.takeIf { chordsNeedAllNotes && it.size >= 2 }
 
     fun startAt(timeMs: Double) {
         index = score.stepAt(timeMs)
@@ -109,6 +116,7 @@ class FollowController(
         lastHeard = event.midi
         val result = when {
             index >= score.steps.size -> FollowResult.FINISHED
+            matches(score.steps[index], event.midi) && expectedChord != null -> FollowResult.IGNORED
             matches(score.steps[index], event.midi) -> {
                 index++
                 lastAdvanceAt = event.timeMs
@@ -124,6 +132,17 @@ class FollowController(
         }
         lastResult = result
         return result
+    }
+
+    /** Every note of the current chord was heard. */
+    fun onChord(event: ChordEvent): FollowResult {
+        val chord = expectedChord ?: return FollowResult.IGNORED
+        if (event.pitches != chord) return FollowResult.IGNORED
+        index++
+        lastAdvanceAt = event.timeMs
+        lastHeard = null
+        lastResult = if (index >= score.steps.size) FollowResult.FINISHED else FollowResult.ADVANCED
+        return lastResult!!
     }
 
     private fun matches(step: FollowStep, midi: Int): Boolean =

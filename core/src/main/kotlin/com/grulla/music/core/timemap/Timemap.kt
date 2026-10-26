@@ -46,6 +46,9 @@ class Timemap(entries: List<TimemapEntry>) {
     /** Number of distinct measures (bars) in the score. */
     val barCount: Int get() = barNumbers.size
 
+    /** Id of the measure with bar number [bar] (1-based), or null. */
+    fun measureIdOfBar(bar: Int): String? = barNumbers.entries.firstOrNull { it.value == bar }?.key
+
     /** Bar number at [timeMs] (1-based), or 0 for an empty score. */
     fun barAt(timeMs: Double): Int = measureAt(timeMs)?.let { barNumbers[it.id] } ?: 0
 

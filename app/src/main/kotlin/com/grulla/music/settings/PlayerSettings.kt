@@ -2,6 +2,7 @@ package com.grulla.music.settings
 
 import android.content.Context
 import androidx.core.content.edit
+import com.grulla.music.core.listen.ChordSensitivity
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -12,6 +13,9 @@ data class PlayerPreferences(
     val earlyPageTurn: Boolean = false,
     /** Arrow keys turn pages too (most Bluetooth pedals send them); Page Up / Down always do. */
     val arrowKeysTurnPages: Boolean = true,
+    /** Follow me: a chord counts only when every note is heard (otherwise any one of them). */
+    val chordsNeedAllNotes: Boolean = false,
+    val chordSensitivity: ChordSensitivity = ChordSensitivity.NORMAL,
 )
 
 class PlayerSettings(context: Context) {
@@ -24,6 +28,8 @@ class PlayerSettings(context: Context) {
         prefs.edit {
             putBoolean(KEY_EARLY_TURN, next.earlyPageTurn)
             putBoolean(KEY_ARROW_KEYS, next.arrowKeysTurnPages)
+            putBoolean(KEY_ALL_CHORD_NOTES, next.chordsNeedAllNotes)
+            putString(KEY_CHORD_SENSITIVITY, next.chordSensitivity.name)
         }
         mutable.value = next
     }
@@ -33,11 +39,16 @@ class PlayerSettings(context: Context) {
         return PlayerPreferences(
             earlyPageTurn = prefs.getBoolean(KEY_EARLY_TURN, defaults.earlyPageTurn),
             arrowKeysTurnPages = prefs.getBoolean(KEY_ARROW_KEYS, defaults.arrowKeysTurnPages),
+            chordsNeedAllNotes = prefs.getBoolean(KEY_ALL_CHORD_NOTES, defaults.chordsNeedAllNotes),
+            chordSensitivity = prefs.getString(KEY_CHORD_SENSITIVITY, null)
+                ?.let { runCatching { ChordSensitivity.valueOf(it) }.getOrNull() } ?: defaults.chordSensitivity,
         )
     }
 
     private companion object {
         const val KEY_EARLY_TURN = "early_page_turn"
         const val KEY_ARROW_KEYS = "arrow_keys_turn_pages"
+        const val KEY_ALL_CHORD_NOTES = "chords_need_all_notes"
+        const val KEY_CHORD_SENSITIVITY = "chord_sensitivity"
     }
 }

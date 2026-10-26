@@ -1,5 +1,6 @@
 package com.grulla.music.core.library
 
+import com.grulla.music.core.practice.SpeedTrainerSettings
 import java.security.MessageDigest
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.json.Json
@@ -20,6 +21,10 @@ data class ScoreSettings(
     val mutedTracks: Set<Int> = emptySet(),
     val soloedTracks: Set<Int> = emptySet(),
     val lastPositionMs: Double = 0.0,
+    val trainer: SpeedTrainerSettings = SpeedTrainerSettings(),
+    val trainerOn: Boolean = false,
+    /** MIDI tracks of the part(s) the user plays, for Follow me / Wait for me (empty: not chosen yet). */
+    val myTracks: Set<Int> = emptySet(),
 )
 
 @Serializable

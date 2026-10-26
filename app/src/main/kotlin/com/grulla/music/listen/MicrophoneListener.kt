@@ -9,6 +9,9 @@ import android.media.MediaRecorder
 import android.os.Handler
 import android.os.Looper
 import androidx.annotation.RequiresPermission
+import com.grulla.music.core.listen.ChordDetector
+import com.grulla.music.core.listen.ChordEvent
+import com.grulla.music.core.listen.ChordSensitivity
 import com.grulla.music.core.listen.NoteEvent
 import com.grulla.music.core.listen.NoteEventDetector
 import com.grulla.music.core.listen.PitchEstimate
@@ -22,7 +25,14 @@ class MicrophoneListener(
     private val onNote: (NoteEvent) -> Unit,
     /** Latest analysis, about ten times per second, for a live "hearing" display. */
     private val onLevel: (PitchEstimate) -> Unit,
+    /** Every note of [expectedChord] was heard. */
+    private val onChord: (ChordEvent) -> Unit = {},
+    private val chordSensitivity: ChordSensitivity = ChordSensitivity.NORMAL,
 ) {
+    /** Chord to check every note of (see [ChordDetector]); null when the next step is not a chord. */
+    @Volatile
+    var expectedChord: Set<Int>? = null
+
     private val main = Handler(Looper.getMainLooper())
     private var thread: Thread? = null
 
@@ -67,7 +77,9 @@ class MicrophoneListener(
     private fun analyse(record: AudioRecord) {
         val detector = YinPitchDetector(SAMPLE_RATE)
         val notes = NoteEventDetector()
-        val window = FloatArray(detector.requiredSamples)
+        val chords = ChordDetector(SAMPLE_RATE, sensitivity = chordSensitivity)
+        // Long enough for the chord check; YIN reads the newest samples at its end.
+        val window = FloatArray(maxOf(detector.requiredSamples, chords.fftSize))
         val chunk = FloatArray(HOP)
         var filled = 0
         var samples = 0L
@@ -84,9 +96,14 @@ class MicrophoneListener(
                 filled = minOf(window.size, filled + read)
                 samples += read
                 if (filled < window.size) continue
-                val estimate = detector.detect(window)
+                val estimate = detector.detect(window, window.size - detector.requiredSamples)
                 val timeMs = samples * 1000.0 / SAMPLE_RATE
                 notes.process(estimate, timeMs)?.let { event -> main.post { if (running) onNote(event) } }
+                val chord = expectedChord
+                if (chord != null && chord.size >= 2) {
+                    chords.expect(chord)
+                    chords.process(window, timeMs = timeMs)?.let { event -> main.post { if (running) onChord(event) } }
+                }
                 if (timeMs - lastLevelMs >= LEVEL_INTERVAL_MS) {
                     lastLevelMs = timeMs
                     main.post { if (running) onLevel(estimate) }

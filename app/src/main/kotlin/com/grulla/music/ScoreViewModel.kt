@@ -7,9 +7,11 @@ import android.util.Base64
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import com.grulla.music.core.library.LibraryEntry
+import com.grulla.music.core.listen.ChordEvent
 import com.grulla.music.core.listen.FollowController
 import com.grulla.music.core.listen.FollowResult
 import com.grulla.music.core.listen.FollowScore
+import com.grulla.music.core.listen.FollowStep
 import com.grulla.music.core.listen.NoteEvent
 import com.grulla.music.core.listen.PitchEstimate
 import com.grulla.music.core.listen.noteName
@@ -22,6 +24,10 @@ import com.grulla.music.core.playback.PlaybackListener
 import com.grulla.music.core.playback.PlaybackState
 import com.grulla.music.core.playback.Segment
 import com.grulla.music.core.playback.TimeRange
+import com.grulla.music.core.playback.Transport
+import com.grulla.music.core.practice.ScorePractice
+import com.grulla.music.core.practice.SpeedTrainer
+import com.grulla.music.core.practice.SpeedTrainerSettings
 import com.grulla.music.core.score.LoadedScore
 import com.grulla.music.core.score.PartListParser
 import com.grulla.music.core.score.RenderedScore
@@ -41,7 +47,11 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.FlowPreview
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.channels.Channel
+import java.time.LocalDate
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.SharingStarted
+import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -80,10 +90,20 @@ data class ScoreUiState(
     val listening: ListeningState? = null,
     /** Label of the A–B loop, e.g. "Loop 3–5". */
     val loopLabel: String? = null,
+    /** Speed trainer settings of this score, and its progress while it runs (null when off). */
+    val trainerSettings: SpeedTrainerSettings = SpeedTrainerSettings(),
+    val trainer: TrainerState? = null,
+    /** The part(s) the user plays, chosen when starting Follow me / Wait for me. */
+    val myTracks: Set<Int> = emptySet(),
 )
 
+data class TrainerState(val tempoPercent: Int, val passes: Int, val repeats: Int, val reachedTarget: Boolean)
+
+/** FOLLOW: the score waits for you in silence. WAIT: the other parts play and wait for you. */
+enum class ListenMode { FOLLOW, WAIT }
+
 data class ListeningState(
-    /** Note names to play next, e.g. "E4" or "C4 / E4 / G4". */
+    /** Note names to play next, e.g. "E4" or "C4 E4 G4". */
     val expected: String,
     val step: Int,
     val total: Int,
@@ -93,6 +113,9 @@ data class ListeningState(
     val hearing: String = "–",
     /** The last note that did not match, shown briefly. */
     val wrong: String? = null,
+    val mode: ListenMode = ListenMode.FOLLOW,
+    /** The next step is a chord and every note of it must be heard. */
+    val allChordNotes: Boolean = false,
 )
 
 class ScoreViewModel(application: Application) :
@@ -149,8 +172,13 @@ class ScoreViewModel(application: Application) :
 
     val pickerMimeTypes: Array<String> get() = files.pickerMimeTypes
 
+    /** The practice log of the open score. */
+    val practice: StateFlow<ScorePractice?> = combine(entryId, app.practice.log) { id, log -> id?.let { log[it] } }
+        .stateIn(viewModelScope, SharingStarted.Eagerly, null)
+
     init {
         autosaveSettings()
+        countPracticeTime()
         viewModelScope.launch {
             app.player.preferences.collect { commandChannel.trySend(WebCommand.SetOptions(earlyTurn = it.earlyPageTurn)) }
         }
@@ -210,6 +238,8 @@ class ScoreViewModel(application: Application) :
     }
 
     private fun showScore(score: LoadedScore, title: String, settings: ScoreSettings) {
+        trainer = null
+        playback.holdAt(null)
         playback.clearScore()
         rendered = null
         timemap = null
@@ -232,6 +262,7 @@ class ScoreViewModel(application: Application) :
                 mix = MixState(),
                 silent = false,
                 spread = false,
+                trainer = null,
                 scale = settings.scale ?: DEFAULT_SCALE,
                 layoutMode = if (settings.pageLayout == true) LayoutMode.PAGE else LayoutMode.CONTINUOUS,
                 follow = settings.follow,
@@ -268,6 +299,9 @@ class ScoreViewModel(application: Application) :
         mutedTracks = ui.mix.muted,
         soloedTracks = ui.mix.soloed,
         lastPositionMs = playback.positionMs,
+        trainer = ui.trainerSettings,
+        trainerOn = ui.trainer != null,
+        myTracks = ui.myTracks,
     )
 
     /** Saves settings when they have been stable for a moment (so not continuously while playing). */
@@ -329,6 +363,8 @@ class ScoreViewModel(application: Application) :
                 if (settings.loopEnabled) commandChannel.trySend(WebCommand.SetLoop(first.id, last.id))
             }
         }
+        mutableUi.update { it.copy(trainerSettings = settings.trainer, myTracks = settings.myTracks intersect tracks) }
+        if (settings.trainerOn && playback.state.value.loop != null) setTrainerOn(true)
         if (settings.lastPositionMs > 0) playback.seekTo(settings.lastPositionMs)
     }
 
@@ -405,13 +441,19 @@ class ScoreViewModel(application: Application) :
             return
         }
         pendingLoopStart = null
-        val (start, end) = map.rangeOfMeasures(first, measureId) ?: return
-        val inOrder = (map.measureStartMs(first) ?: 0.0) <= (map.measureStartMs(measureId) ?: 0.0)
-        val measures = if (inOrder) first to measureId else measureId to first
+        setLoopMeasures(first, measureId)
+        mutableUi.update { it.copy(notice = null) }
+    }
+
+    private fun setLoopMeasures(first: String, last: String) {
+        val map = timemap ?: return
+        val (start, end) = map.rangeOfMeasures(first, last) ?: return
+        val inOrder = (map.measureStartMs(first) ?: 0.0) <= (map.measureStartMs(last) ?: 0.0)
+        val measures = if (inOrder) first to last else last to first
         loopMeasures = measures
         playback.setLoop(TimeRange(start, end))
         commandChannel.trySend(WebCommand.SetLoop(measures.first, measures.second))
-        mutableUi.update { it.copy(notice = null, loopLabel = loopLabel(TimeRange(start, end))) }
+        mutableUi.update { it.copy(loopLabel = loopLabel(TimeRange(start, end))) }
     }
 
     override fun onZoomChanged(scale: Int) {
@@ -429,6 +471,7 @@ class ScoreViewModel(application: Application) :
     // --- Callbacks from the playback controller ------------------------------------
 
     override fun onSegmentChanged(segment: Segment?, follow: Boolean) {
+        if (this.follow != null) return // Listening shows the notes to play instead.
         commandChannel.trySend(WebCommand.Highlight(segment?.noteIds.orEmpty(), follow && mutableUi.value.follow))
     }
 
@@ -440,37 +483,54 @@ class ScoreViewModel(application: Application) :
         mutableUi.update { it.copy(error = message) }
     }
 
-    // --- "Follow me": listen to the player --------------------------------------------
+    // --- Follow me / Wait for me: listen to the player ---------------------------------
 
     private var follow: FollowController? = null
     private var microphone: MicrophoneListener? = null
+    private var listenMode = ListenMode.FOLLOW
     private var followedPart = "All parts"
 
-    /** Call only with the RECORD_AUDIO permission granted. */
+    /**
+     * Starts listening. [tracks] are the MIDI tracks of the part(s) the user plays
+     * (empty: everything). Follow me waits silently; Wait for me plays the other
+     * parts and holds at each of the user's notes. Call only with RECORD_AUDIO granted.
+     */
     @android.annotation.SuppressLint("MissingPermission")
-    fun startListening() {
+    fun startListening(mode: ListenMode, tracks: Set<Int>) {
         val score = rendered ?: return
         if (follow != null) return
-        playback.pause()
-        // Follow the parts that are audible in the mixer: solo or mute the others to choose your part.
         val state = mutableUi.value
-        val silenced = state.mix.silencedTracks(state.mixer)
-        val tracks = state.mixer.map { it.trackIndex }.filter { it !in silenced }.toSet().takeIf { state.mixer.isNotEmpty() }
-        val steps = FollowScore.build(score.timemap, score.pitches, score.midi, tracks)
+        val chosen = tracks intersect state.mixer.map { it.trackIndex }.toSet()
+        mutableUi.update { it.copy(myTracks = chosen) }
+        val steps = FollowScore.build(score.timemap, score.pitches, score.midi, chosen.takeIf { it.isNotEmpty() })
         if (steps.steps.isEmpty()) {
             mutableUi.update { it.copy(notice = "There are no notes to follow in the selected parts.") }
             return
         }
-        val controller = FollowController(steps).also { it.startAt(playbackState.value.positionMs) }
-        followedPart = state.mixer.filter { tracks == null || it.trackIndex in tracks }.map { it.label }
+        if (mode == ListenMode.WAIT && state.mixer.all { it.trackIndex in chosen || it.trackIndex in state.mix.silencedTracks(state.mixer) }) {
+            mutableUi.update { it.copy(notice = "Wait for me needs another part to play along. Choose only your own part.") }
+            return
+        }
+        val prefs = app.player.preferences.value
+        playback.pause()
+        val controller = FollowController(steps, chordsNeedAllNotes = prefs.chordsNeedAllNotes).also {
+            it.startAt(playbackState.value.positionMs)
+        }
+        followedPart = state.mixer.filter { it.trackIndex in chosen }.map { it.label }
             .takeIf { it.isNotEmpty() && it.size < state.mixer.size }?.joinToString(", ") ?: "All parts"
-        val mic = MicrophoneListener(onNote = ::onHeard, onLevel = ::onHearing)
+        val mic = MicrophoneListener(onNote = ::onHeard, onLevel = ::onHearing, onChord = ::onChordHeard, chordSensitivity = prefs.chordSensitivity)
         if (!mic.start(app)) {
             mutableUi.update { it.copy(error = "The microphone could not be opened.") }
             return
         }
         follow = controller
         microphone = mic
+        listenMode = mode
+        if (mode == ListenMode.WAIT) {
+            applySilenced()
+            playback.holdAt(controller.currentStep?.timeMs)
+            playback.play()
+        }
         showFollowStep()
     }
 
@@ -484,28 +544,75 @@ class ScoreViewModel(application: Application) :
     }
 
     private fun onHeardFinished() {
-        stopListening()
-        commandChannel.trySend(WebCommand.Highlight(emptyList(), false))
+        val waiting = listenMode == ListenMode.WAIT
+        stopListening(seek = !waiting)
+        if (waiting) {
+            playback.play() // The accompaniment plays to the end.
+        } else {
+            commandChannel.trySend(WebCommand.Highlight(emptyList(), false))
+        }
         mutableUi.update { it.copy(notice = "Well done! You reached the end.") }
     }
 
-    override fun stopListening() {
+    override fun stopListening() = stopListening(seek = true)
+
+    private fun stopListening(seek: Boolean) {
         microphone?.stop()
         microphone = null
         val controller = follow ?: return
         follow = null
         mutableUi.update { it.copy(listening = null) }
+        if (listenMode == ListenMode.WAIT) {
+            playback.holdAt(null)
+            playback.pause()
+            listenMode = ListenMode.FOLLOW
+            applySilenced()
+            return
+        }
         // Playback continues from where the player got to.
-        controller.currentStep?.let { playback.seekTo(it.timeMs) }
+        if (seek) controller.currentStep?.let { playback.seekTo(it.timeMs) }
     }
 
     private fun onHeard(event: NoteEvent) {
         val controller = follow ?: return
-        when (controller.onNote(event)) {
+        val step = controller.currentStep ?: return
+        if (listenMode == ListenMode.WAIT && !nearHold(step.timeMs)) return // Most likely the accompaniment.
+        val result = controller.onNote(event)
+        record(result, step)
+        when (result) {
             FollowResult.ADVANCED, FollowResult.SKIPPED_AHEAD -> showFollowStep()
             FollowResult.WRONG -> mutableUi.update { it.copy(listening = it.listening?.copy(wrong = noteName(event.midi))) }
             FollowResult.FINISHED -> onHeardFinished()
             FollowResult.IGNORED -> Unit
+        }
+    }
+
+    private fun onChordHeard(event: ChordEvent) {
+        val controller = follow ?: return
+        val step = controller.currentStep ?: return
+        val result = controller.onChord(event)
+        record(result, step)
+        when (result) {
+            FollowResult.ADVANCED -> showFollowStep()
+            FollowResult.FINISHED -> onHeardFinished()
+            else -> Unit
+        }
+    }
+
+    /** In Wait for me, notes only count close to where playback waits for them. */
+    private fun nearHold(stepMs: Double): Boolean {
+        val state = playbackState.value
+        return state.transport == Transport.WAITING || state.positionMs >= stepMs - WAIT_LISTEN_WINDOW_MS
+    }
+
+    /** Practice log: a right note is a hit in its bar, a wrong one a miss. */
+    private fun record(result: FollowResult, step: FollowStep) {
+        val id = entryId.value ?: return
+        val bar = timemap?.barAt(step.timeMs) ?: return
+        when (result) {
+            FollowResult.ADVANCED, FollowResult.FINISHED -> app.practice.update(id) { it.withHit(bar) }
+            FollowResult.WRONG -> app.practice.update(id) { it.withMiss(bar) }
+            else -> Unit
         }
     }
 
@@ -518,8 +625,10 @@ class ScoreViewModel(application: Application) :
     private fun showFollowStep() {
         val controller = follow ?: return
         val step = controller.currentStep ?: return
+        microphone?.expectedChord = controller.expectedChord
+        if (listenMode == ListenMode.WAIT) playback.holdAt(step.timeMs)
         commandChannel.trySend(WebCommand.Highlight(step.noteIds, follow = true, kind = WebCommand.Highlight.Kind.LISTEN))
-        val expected = step.pitches.sorted().joinToString(" / ") { noteName(it) }
+        val expected = step.pitches.sorted().joinToString(" ") { noteName(it) }
         mutableUi.update {
             it.copy(
                 listening = ListeningState(
@@ -528,9 +637,83 @@ class ScoreViewModel(application: Application) :
                     total = controller.state.total,
                     part = followedPart,
                     hearing = it.listening?.hearing ?: "–",
+                    mode = listenMode,
+                    allChordNotes = controller.expectedChord != null,
                 ),
             )
         }
+    }
+
+    // --- Practice: speed trainer, loop passes, time ------------------------------------
+
+    private var trainer: SpeedTrainer? = null
+
+    override fun onLoopPass() {
+        entryId.value?.let { id -> app.practice.update(id) { it.withLoopPass() } }
+        trainer?.let { t ->
+            t.onPass()?.let { tempo -> playback.setTempoPercent(tempo) }
+            showTrainer()
+        }
+        val controller = follow
+        val loop = playbackState.value.activeLoop
+        if (controller != null && loop != null) {
+            controller.startAt(loop.startMs)
+            showFollowStep()
+        }
+    }
+
+    override fun setTrainer(settings: SpeedTrainerSettings) {
+        val normalized = settings.normalized()
+        mutableUi.update { it.copy(trainerSettings = normalized) }
+        if (trainer != null) startTrainer(normalized)
+    }
+
+    override fun setTrainerOn(on: Boolean) {
+        if (!on) {
+            trainer = null
+            mutableUi.update { it.copy(trainer = null) }
+            return
+        }
+        if (playbackState.value.loop == null) {
+            showNotice("The speed trainer repeats a loop. Long-press the first and last bar to set one.")
+            return
+        }
+        playback.setLoopEnabled(true)
+        loopMeasures?.let { commandChannel.trySend(WebCommand.SetLoop(it.first, it.second)) }
+        startTrainer(mutableUi.value.trainerSettings)
+    }
+
+    private fun startTrainer(settings: SpeedTrainerSettings) {
+        val t = SpeedTrainer(settings)
+        trainer = t
+        playback.setTempoPercent(t.tempoPercent)
+        showTrainer()
+    }
+
+    private fun showTrainer() {
+        val t = trainer ?: return
+        mutableUi.update { it.copy(trainer = TrainerState(t.tempoPercent, t.passes, t.settings.repeats, t.reachedTarget)) }
+    }
+
+    /** Adds practice time while playing or listening. */
+    private fun countPracticeTime() {
+        viewModelScope.launch {
+            while (true) {
+                delay(PRACTICE_TICK_MS)
+                val id = entryId.value ?: continue
+                if (playbackState.value.isRunning || follow != null) {
+                    app.practice.update(id) { it.withTime(PRACTICE_TICK_MS, LocalDate.now()) }
+                }
+            }
+        }
+    }
+
+    /** Loops bars [first]..[last] (bar numbers), e.g. from the practice log's trouble bars. */
+    override fun loopBars(first: Int, last: Int) {
+        val map = timemap ?: return
+        val a = map.measureIdOfBar(first) ?: return
+        val b = map.measureIdOfBar(last) ?: return
+        setLoopMeasures(a, b)
     }
 
     // --- User actions --------------------------------------------------------------
@@ -547,7 +730,10 @@ class ScoreViewModel(application: Application) :
         playback.stop()
     }
 
-    override fun setTempoPercent(percent: Int) = playback.setTempoPercent(percent)
+    override fun setTempoPercent(percent: Int) {
+        if (trainer != null) setTrainerOn(false) // Choosing a tempo by hand ends the trainer.
+        playback.setTempoPercent(percent)
+    }
 
     override fun setCountIn(enabled: Boolean) = playback.setCountInEnabled(enabled)
 
@@ -574,6 +760,7 @@ class ScoreViewModel(application: Application) :
     }
 
     override fun clearLoop() {
+        setTrainerOn(false)
         pendingLoopStart = null
         loopMeasures = null
         playback.setLoop(null)
@@ -592,9 +779,19 @@ class ScoreViewModel(application: Application) :
 
     private fun updateMix(change: (MixState) -> MixState) {
         mutableUi.update { it.copy(mix = change(it.mix)) }
+        applySilenced()
+    }
+
+    /** Mute / solo, Silent, and in Wait for me the user's own part. */
+    private fun applySilenced() {
         val state = mutableUi.value
         val everything = rendered?.midi?.tracks?.indices?.toSet().orEmpty()
-        playback.setSilencedTracks(if (state.silent) everything else state.mix.silencedTracks(state.mixer))
+        val silenced = when {
+            state.silent -> everything
+            follow != null && listenMode == ListenMode.WAIT -> state.mix.silencedTracks(state.mixer) + state.myTracks
+            else -> state.mix.silencedTracks(state.mixer)
+        }
+        playback.setSilencedTracks(silenced)
     }
 
     override fun setFollow(enabled: Boolean) = mutableUi.update { it.copy(follow = enabled) }
@@ -652,5 +849,9 @@ class ScoreViewModel(application: Application) :
         private const val SCALE_STEP = 5
         private const val AUTOSAVE_DELAY_MS = 800L
         private const val THUMBNAIL_WIDTH = 240
+        private const val PRACTICE_TICK_MS = 5_000L
+
+        /** Wait for me: notes heard earlier than this before the expected one are taken as the accompaniment. */
+        private const val WAIT_LISTEN_WINDOW_MS = 400.0
     }
 }

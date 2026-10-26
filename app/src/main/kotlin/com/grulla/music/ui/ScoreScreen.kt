@@ -13,6 +13,8 @@ import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.ExperimentalLayoutApi
+import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
@@ -26,6 +28,8 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.selection.toggleable
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.CircularProgressIndicator
@@ -42,6 +46,7 @@ import androidx.compose.material3.Slider
 import androidx.compose.material3.SnackbarHost
 import androidx.compose.material3.SnackbarHostState
 import androidx.compose.material3.Surface
+import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.material3.rememberModalBottomSheetState
 import androidx.compose.runtime.Composable
@@ -59,22 +64,28 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.semantics.LiveRegionMode
+import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.liveRegion
 import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.core.content.ContextCompat
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import com.grulla.music.ListenMode
 import com.grulla.music.ListeningState
 import com.grulla.music.ScoreUiState
 import com.grulla.music.ScoreViewModel
 import com.grulla.music.core.playback.PlaybackState
 import com.grulla.music.core.playback.TempoRange
 import com.grulla.music.core.playback.Transport
+import com.grulla.music.core.practice.ScorePractice
+import com.grulla.music.core.practice.SpeedTrainerSettings
 import com.grulla.music.score.LayoutMode
 import com.grulla.music.score.ScoreView
+import java.time.LocalDate
 import kotlin.math.roundToInt
 
 /** Everything the score screen can ask for; implemented by [ScoreViewModel]. */
@@ -102,6 +113,10 @@ interface ScoreActions {
     fun toggleSolo(track: Int)
     fun stopListening()
     fun skipNote()
+    fun setTrainer(settings: SpeedTrainerSettings)
+    fun setTrainerOn(on: Boolean)
+    /** Loop bars [first]..[last] (bar numbers). */
+    fun loopBars(first: Int, last: Int)
 }
 
 @Composable
@@ -114,17 +129,21 @@ fun ScoreScreen(
 ) {
     val ui by viewModel.ui.collectAsStateWithLifecycle()
     val playback by viewModel.playbackState.collectAsStateWithLifecycle()
+    val practice by viewModel.practice.collectAsStateWithLifecycle()
     val snackbar = remember { SnackbarHostState() }
     val context = LocalContext.current
+    var pendingListen by remember { mutableStateOf<Pair<ListenMode, Set<Int>>?>(null) }
     val micPermission = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) { granted ->
-        if (granted) viewModel.startListening() else viewModel.showNotice("Follow me needs permission to use the microphone.")
+        val (mode, tracks) = pendingListen ?: return@rememberLauncherForActivityResult
+        pendingListen = null
+        if (granted) viewModel.startListening(mode, tracks) else viewModel.showNotice("Follow me needs permission to use the microphone.")
     }
-    val toggleListening = {
-        when {
-            ui.listening != null -> viewModel.stopListening()
-            ContextCompat.checkSelfPermission(context, Manifest.permission.RECORD_AUDIO) == PackageManager.PERMISSION_GRANTED ->
-                viewModel.startListening()
-            else -> micPermission.launch(Manifest.permission.RECORD_AUDIO)
+    val startListening = { mode: ListenMode, tracks: Set<Int> ->
+        if (ContextCompat.checkSelfPermission(context, Manifest.permission.RECORD_AUDIO) == PackageManager.PERMISSION_GRANTED) {
+            viewModel.startListening(mode, tracks)
+        } else {
+            pendingListen = mode to tracks
+            micPermission.launch(Manifest.permission.RECORD_AUDIO)
         }
     }
     LaunchedEffect(ui.error) {
@@ -144,7 +163,8 @@ fun ScoreScreen(
         actions = viewModel,
         onBack = onBack,
         onOpenSettings = onOpenSettings,
-        onListen = toggleListening,
+        onListen = startListening,
+        practice = practice,
         snackbarHost = { SnackbarHost(snackbar) },
         dockLayout = DockLayout.forScreen(LocalConfiguration.current, tabletop),
     ) { modifier ->
@@ -191,28 +211,30 @@ fun ScoreScreenContent(
     actions: ScoreActions,
     onBack: () -> Unit,
     onOpenSettings: () -> Unit,
-    onListen: () -> Unit,
+    onListen: (ListenMode, Set<Int>) -> Unit,
+    practice: ScorePractice? = null,
     snackbarHost: @Composable () -> Unit = {},
     dockLayout: DockLayout = DockLayout.Regular,
+    openSheet: ScoreSheet? = null,
     score: @Composable (Modifier) -> Unit,
 ) {
     val c = Grulla.colors
-    var showMixer by remember { mutableStateOf(false) }
-    var showTempo by remember { mutableStateOf(false) }
+    var sheet by remember { mutableStateOf(openSheet) }
 
     Scaffold(
         containerColor = c.paper,
         topBar = {
-            ScoreTopBar(ui, bar, onBack, onOpenSettings, onParts = { showMixer = true }, actions = actions)
+            ScoreTopBar(ui, bar, onBack, onOpenSettings, onSheet = { sheet = it }, actions = actions)
         },
         bottomBar = {
             val listening = ui.listening
+            val onMic = { sheet = ScoreSheet.LISTEN }
             if (listening != null) {
                 ListeningDock(listening, actions, dockLayout)
             } else if (dockLayout == DockLayout.Compact) {
-                CompactTransportDock(ui, playback, actions, onListen = onListen, onTempo = { showTempo = true })
+                CompactTransportDock(ui, playback, actions, onListen = onMic, onTempo = { sheet = ScoreSheet.TEMPO })
             } else {
-                TransportDock(ui, playback, actions, onListen = onListen, onTempo = { showTempo = true }, layout = dockLayout)
+                TransportDock(ui, playback, actions, onListen = onMic, onTempo = { sheet = ScoreSheet.TEMPO }, layout = dockLayout)
             }
         },
         snackbarHost = snackbarHost,
@@ -232,25 +254,32 @@ fun ScoreScreenContent(
         }
     }
 
-    if (showMixer) {
+    val open = sheet
+    if (open != null) {
+        val close = { sheet = null }
         ModalBottomSheet(
-            onDismissRequest = { showMixer = false },
+            onDismissRequest = close,
             containerColor = c.sheet,
             sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true),
         ) {
-            MixerSheet(ui, actions)
-        }
-    }
-    if (showTempo) {
-        ModalBottomSheet(
-            onDismissRequest = { showTempo = false },
-            containerColor = c.sheet,
-            sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true),
-        ) {
-            TempoSheet(playback.tempoPercent, actions::setTempoPercent)
+            when (open) {
+                ScoreSheet.PARTS -> MixerSheet(ui, actions)
+                ScoreSheet.TEMPO -> TempoSheet(ui, playback, actions)
+                ScoreSheet.LISTEN -> ListenSheet(ui) { mode, tracks ->
+                    close()
+                    onListen(mode, tracks)
+                }
+                ScoreSheet.PRACTICE -> PracticeSheet(practice) { first, last ->
+                    close()
+                    actions.loopBars(first, last)
+                }
+            }
         }
     }
 }
+
+/** The bottom sheets of the score screen. */
+enum class ScoreSheet { PARTS, TEMPO, LISTEN, PRACTICE }
 
 @Composable
 private fun ScoreTopBar(
@@ -258,7 +287,7 @@ private fun ScoreTopBar(
     bar: BarInfo?,
     onBack: () -> Unit,
     onOpenSettings: () -> Unit,
-    onParts: () -> Unit,
+    onSheet: (ScoreSheet) -> Unit,
     actions: ScoreActions,
 ) {
     val c = Grulla.colors
@@ -278,7 +307,8 @@ private fun ScoreTopBar(
             val subtitle = listOfNotNull(
                 ui.composer,
                 when {
-                    ui.listening != null -> "listening"
+                    ui.listening?.mode == ListenMode.WAIT -> "wait for me"
+                    ui.listening != null -> "follow me"
                     bar != null && bar.total > 0 -> "bar ${bar.bar} of ${bar.total}"
                     else -> null
                 },
@@ -288,7 +318,7 @@ private fun ScoreTopBar(
             }
         }
         if (ui.mixer.size > 1) {
-            IconButton(onClick = onParts) { Icon(AppIcons.Parts, contentDescription = "Parts") }
+            IconButton(onClick = { onSheet(ScoreSheet.PARTS) }) { Icon(AppIcons.Parts, contentDescription = "Parts") }
         }
         Box {
             IconButton(onClick = { menu = true }) { Icon(AppIcons.More, contentDescription = "View options") }
@@ -321,6 +351,14 @@ private fun ScoreTopBar(
                     onClick = { actions.setFollow(!ui.follow) },
                 )
                 HorizontalDivider(color = c.line)
+                DropdownMenuItem(
+                    text = { Text("Practice log") },
+                    leadingIcon = { Icon(AppIcons.Practice, contentDescription = null) },
+                    onClick = {
+                        menu = false
+                        onSheet(ScoreSheet.PRACTICE)
+                    },
+                )
                 DropdownMenuItem(
                     text = { Text("Settings") },
                     leadingIcon = { Icon(AppIcons.Settings, contentDescription = null) },
@@ -372,7 +410,7 @@ private fun TransportDock(
                 FollowMeButton(onListen, enabled = playback.hasScore)
             }
             PlayButton(playback, actions::togglePlay, Modifier.align(Alignment.Center))
-            TempoPill(playback.tempoPercent, onTempo, Modifier.align(Alignment.CenterEnd))
+            TempoPill(playback.tempoPercent, onTempo, Modifier.align(Alignment.CenterEnd), training = ui.trainer != null)
         }
         PracticeToggles(ui, playback, actions, Modifier)
     }
@@ -401,16 +439,19 @@ private fun PositionBar(playback: PlaybackState, actions: ScoreActions) {
 }
 
 @Composable
-private fun TempoPill(tempoPercent: Int, onClick: () -> Unit, modifier: Modifier = Modifier) {
+private fun TempoPill(tempoPercent: Int, onClick: () -> Unit, modifier: Modifier = Modifier, training: Boolean = false) {
     val c = Grulla.colors
     Surface(
         onClick = onClick,
         shape = CircleShape,
-        color = Color.Transparent,
-        border = BorderStroke(1.dp, c.line),
+        color = if (training) c.indigoTint else Color.Transparent,
+        contentColor = if (training) c.onIndigoTint else c.ink,
+        border = BorderStroke(1.dp, if (training) c.indigo else c.line),
         modifier = modifier
             .height(48.dp)
-            .semantics { contentDescription = "Tempo $tempoPercent percent, change" },
+            .semantics {
+                contentDescription = "Tempo $tempoPercent percent" + (if (training) ", speed trainer on" else "") + ", change"
+            },
     ) {
         Row(Modifier.padding(horizontal = 14.dp), verticalAlignment = Alignment.CenterVertically) {
             Icon(AppIcons.Metronome, contentDescription = null, modifier = Modifier.size(18.dp))
@@ -463,7 +504,7 @@ private fun CompactTransportDock(ui: ScoreUiState, playback: PlaybackState, acti
             RoundOutlineButton(AppIcons.Stop, "Stop", onClick = actions::stop, enabled = playback.hasScore)
             FollowMeButton(onListen, enabled = playback.hasScore)
             PlayButton(playback, actions::togglePlay, Modifier, size = 56.dp)
-            TempoPill(playback.tempoPercent, onTempo)
+            TempoPill(playback.tempoPercent, onTempo, training = ui.trainer != null)
             Box(Modifier.weight(1f)) { PositionBar(playback, actions) }
             PracticeToggles(ui, playback, actions, Modifier.weight(1f))
         }
@@ -549,12 +590,25 @@ private fun ListeningDock(state: ListeningState, actions: ScoreActions, layout: 
                 }
             }
             Column(Modifier.weight(1f)) {
-                Text("Play", style = MaterialTheme.typography.labelMedium, color = c.onIndigoTint)
+                Text(
+                    when {
+                        state.allChordNotes -> "Play every note"
+                        state.mode == ListenMode.WAIT -> "Your turn: play"
+                        else -> "Play"
+                    },
+                    style = MaterialTheme.typography.labelMedium,
+                    color = c.onIndigoTint,
+                )
                 Text(
                     state.expected,
-                    style = MaterialTheme.typography.displaySmall.copy(fontSize = MaterialTheme.typography.displaySmall.fontSize * 1.1f),
+                    // A chord's note names need a smaller size to fit.
+                    style = if (state.expected.length > 4) {
+                        MaterialTheme.typography.headlineSmall
+                    } else {
+                        MaterialTheme.typography.displaySmall.copy(fontSize = MaterialTheme.typography.displaySmall.fontSize * 1.1f)
+                    },
                     color = c.onIndigoTint,
-                    maxLines = 1,
+                    maxLines = 2,
                     overflow = TextOverflow.Ellipsis,
                 )
             }
@@ -585,7 +639,11 @@ private fun ListeningDock(state: ListeningState, actions: ScoreActions, layout: 
             }
         }
         Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-            IndigoButton("Stop listening", onClick = actions::stopListening, modifier = Modifier.weight(1f))
+            IndigoButton(
+                if (state.mode == ListenMode.WAIT) "Stop Wait for me" else "Stop listening",
+                onClick = actions::stopListening,
+                modifier = Modifier.weight(1f),
+            )
             GhostButton("Skip note", onClick = actions::skipNote)
         }
     }
@@ -648,19 +706,20 @@ private fun MixerSheet(ui: ScoreUiState, actions: ScoreActions) {
     }
 }
 
-/** Tempo picker; applies when the slider is released, since every change re-prepares the music. */
+/** Tempo picker (applies when the slider is released, since every change re-prepares the music) and the speed trainer. */
 @Composable
-private fun TempoSheet(tempoPercent: Int, onTempo: (Int) -> Unit) {
+private fun TempoSheet(ui: ScoreUiState, playback: PlaybackState, actions: ScoreActions) {
     val c = Grulla.colors
-    var value by remember { mutableFloatStateOf(tempoPercent.toFloat()) }
+    var value by remember(playback.tempoPercent) { mutableFloatStateOf(playback.tempoPercent.toFloat()) }
     fun apply(percent: Int) {
         value = TempoRange.clampPercent(percent).toFloat()
-        onTempo(value.roundToInt())
+        actions.setTempoPercent(value.roundToInt())
     }
     Column(
         Modifier
             .fillMaxWidth()
             .navigationBarsPadding()
+            .verticalScroll(rememberScrollState())
             .padding(horizontal = 20.dp)
             .padding(bottom = 24.dp),
         verticalArrangement = Arrangement.spacedBy(12.dp),
@@ -670,7 +729,7 @@ private fun TempoSheet(tempoPercent: Int, onTempo: (Int) -> Unit) {
         Slider(
             value = value,
             onValueChange = { value = it },
-            onValueChangeFinished = { onTempo(value.roundToInt()) },
+            onValueChangeFinished = { actions.setTempoPercent(value.roundToInt()) },
             valueRange = TempoRange.MIN_PERCENT.toFloat()..TempoRange.MAX_PERCENT.toFloat(),
             steps = (TempoRange.MAX_PERCENT - TempoRange.MIN_PERCENT) / 5 - 1,
         )
@@ -680,7 +739,231 @@ private fun TempoSheet(tempoPercent: Int, onTempo: (Int) -> Unit) {
             Spacer(Modifier.weight(1f))
             GhostButton("Reset to 100%", onClick = { apply(TempoRange.DEFAULT_PERCENT) })
         }
+        HorizontalDivider(color = c.line, modifier = Modifier.padding(vertical = 4.dp))
+        TrainerSection(ui, hasLoop = playback.loop != null, actions)
     }
+}
+
+/** Speed trainer: start slow, go up a step every few passes of the loop. */
+@Composable
+private fun TrainerSection(ui: ScoreUiState, hasLoop: Boolean, actions: ScoreActions) {
+    val c = Grulla.colors
+    val settings = ui.trainerSettings
+    val running = ui.trainer
+    Row(
+        Modifier
+            .fillMaxWidth()
+            .toggleable(value = running != null, role = Role.Switch, onValueChange = actions::setTrainerOn),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Column(Modifier.weight(1f)) {
+            Text("Speed trainer", style = MaterialTheme.typography.titleMedium)
+            Text(
+                when {
+                    running == null && !hasLoop -> "Set a loop first: long-press its first and last bar."
+                    running == null -> "Repeats the loop, faster every ${settings.repeats} passes."
+                    running.reachedTarget -> "Target reached: ${running.tempoPercent}%."
+                    else -> "At ${running.tempoPercent}% · pass ${running.passes + 1} of ${running.repeats}"
+                },
+                style = MaterialTheme.typography.bodySmall,
+                color = if (running != null) c.indigo else c.graphite,
+            )
+        }
+        Switch(checked = running != null, onCheckedChange = null)
+    }
+    Stepper("Start", "${settings.startPercent}%", { actions.setTrainer(settings.copy(startPercent = settings.startPercent - 5)) }) {
+        actions.setTrainer(settings.copy(startPercent = settings.startPercent + 5))
+    }
+    Stepper("Target", "${settings.targetPercent}%", { actions.setTrainer(settings.copy(targetPercent = settings.targetPercent - 5)) }) {
+        actions.setTrainer(settings.copy(targetPercent = settings.targetPercent + 5))
+    }
+    Stepper("Step", "+${settings.stepPercent}%", { actions.setTrainer(settings.copy(stepPercent = settings.stepPercent - 1)) }) {
+        actions.setTrainer(settings.copy(stepPercent = settings.stepPercent + 1))
+    }
+    Stepper("Passes per step", "${settings.repeats}", { actions.setTrainer(settings.copy(repeats = settings.repeats - 1)) }) {
+        actions.setTrainer(settings.copy(repeats = settings.repeats + 1))
+    }
+}
+
+@Composable
+private fun Stepper(label: String, value: String, onMinus: () -> Unit, onPlus: () -> Unit) {
+    Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+        Text(label, style = MaterialTheme.typography.bodyLarge, modifier = Modifier.weight(1f))
+        RoundOutlineButton(AppIcons.Minus, "Less $label", onClick = onMinus, size = 40.dp)
+        Text(
+            value,
+            style = MaterialTheme.typography.titleMedium.copy(fontFeatureSettings = "tnum"),
+            modifier = Modifier.width(64.dp),
+            textAlign = TextAlign.Center,
+        )
+        RoundOutlineButton(AppIcons.Add, "More $label", onClick = onPlus, size = 40.dp)
+    }
+}
+
+/** Choose your part and how to practise with the microphone. */
+@Composable
+private fun ListenSheet(ui: ScoreUiState, onStart: (ListenMode, Set<Int>) -> Unit) {
+    val c = Grulla.colors
+    val all = ui.mixer.map { it.trackIndex }.toSet()
+    var mine by remember { mutableStateOf(ui.myTracks.ifEmpty { all }) }
+    val others = all - mine - ui.mix.silencedTracks(ui.mixer)
+    Column(
+        Modifier
+            .fillMaxWidth()
+            .navigationBarsPadding()
+            .verticalScroll(rememberScrollState())
+            .padding(horizontal = 20.dp)
+            .padding(bottom = 24.dp),
+        verticalArrangement = Arrangement.spacedBy(12.dp),
+    ) {
+        Text("Practise with the microphone", style = MaterialTheme.typography.headlineSmall)
+        if (ui.mixer.size > 1) {
+            Text("Your part", style = MaterialTheme.typography.titleMedium)
+            FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                for (channel in ui.mixer) {
+                    GrullaChip(
+                        channel.label,
+                        selected = channel.trackIndex in mine,
+                        onClick = {
+                            val next = if (channel.trackIndex in mine) mine - channel.trackIndex else mine + channel.trackIndex
+                            if (next.isNotEmpty()) mine = next
+                        },
+                    )
+                }
+            }
+        }
+        ModeCard(
+            title = "Follow me",
+            detail = "The score waits for you and moves on with every right note. No sound.",
+            onClick = { onStart(ListenMode.FOLLOW, mine) },
+        )
+        ModeCard(
+            title = "Wait for me",
+            detail = if (others.isEmpty()) {
+                "Choose only your own part: the other parts play along and wait for each of your notes."
+            } else {
+                "The other parts play along and wait for each of your notes. Headphones help the microphone hear only you."
+            },
+            enabled = others.isNotEmpty(),
+            onClick = { onStart(ListenMode.WAIT, mine) },
+        )
+        if (ui.mixer.isNotEmpty() && mine.size < all.size) {
+            Text(
+                "Mute and solo in Parts still apply to what you hear.",
+                style = MaterialTheme.typography.bodySmall,
+                color = c.graphite,
+            )
+        }
+    }
+}
+
+@Composable
+private fun ModeCard(title: String, detail: String, onClick: () -> Unit, enabled: Boolean = true) {
+    val c = Grulla.colors
+    Surface(
+        onClick = onClick,
+        enabled = enabled,
+        shape = RoundedCornerShape(16.dp),
+        color = if (enabled) c.indigoTint else c.tag,
+        contentColor = if (enabled) c.onIndigoTint else c.graphite,
+        border = BorderStroke(1.dp, if (enabled) c.indigo else c.line),
+        modifier = Modifier.fillMaxWidth(),
+    ) {
+        Row(Modifier.padding(16.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(14.dp)) {
+            Icon(AppIcons.Mic, contentDescription = null)
+            Column(Modifier.weight(1f)) {
+                Text(title, style = MaterialTheme.typography.titleMedium)
+                Text(detail, style = MaterialTheme.typography.bodySmall)
+            }
+        }
+    }
+}
+
+/** Time spent, loops, Follow me accuracy and the bars that need work. */
+@Composable
+private fun PracticeSheet(practice: ScorePractice?, onLoopBar: (Int, Int) -> Unit) {
+    val c = Grulla.colors
+    val log = practice ?: ScorePractice()
+    Column(
+        Modifier
+            .fillMaxWidth()
+            .navigationBarsPadding()
+            .verticalScroll(rememberScrollState())
+            .padding(horizontal = 20.dp)
+            .padding(bottom = 24.dp),
+        verticalArrangement = Arrangement.spacedBy(12.dp),
+    ) {
+        Text("Practice", style = MaterialTheme.typography.headlineSmall)
+        Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+            Stat("Last 7 days", formatDuration(log.recentMs(LocalDate.now())), Modifier.weight(1f))
+            Stat("In total", formatDuration(log.totalMs), Modifier.weight(1f))
+        }
+        Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+            Stat("Loops played", "${log.loopPasses}", Modifier.weight(1f))
+            Stat("Follow me", log.accuracy?.let { "${(it * 100).roundToInt()}% right" } ?: "–", Modifier.weight(1f))
+        }
+        Text("Trouble bars", style = MaterialTheme.typography.titleMedium, modifier = Modifier.padding(top = 4.dp))
+        val trouble = log.troubleBars()
+        if (trouble.isEmpty()) {
+            Text(
+                "Play with Follow me and the bars with the most wrong notes show up here, ready to loop.",
+                style = MaterialTheme.typography.bodyMedium,
+                color = c.graphite,
+            )
+        }
+        for (bar in trouble) {
+            Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+                Column(Modifier.weight(1f)) {
+                    Text("Bar ${bar.bar}", style = MaterialTheme.typography.bodyLarge)
+                    Text(
+                        "${bar.misses} wrong of ${bar.attempts} notes",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = c.graphite,
+                    )
+                }
+                MissMeter(bar.missRate.toFloat(), Modifier.width(72.dp))
+                Spacer(Modifier.width(12.dp))
+                GhostButton("Loop", onClick = { onLoopBar(bar.bar, bar.bar) })
+            }
+        }
+    }
+}
+
+/** Share of wrong notes as a short amber bar. */
+@Composable
+private fun MissMeter(fraction: Float, modifier: Modifier) {
+    val c = Grulla.colors
+    Box(
+        modifier
+            .height(6.dp)
+            .clip(CircleShape)
+            .background(c.line),
+    ) {
+        Box(
+            Modifier
+                .fillMaxWidth(fraction.coerceIn(0f, 1f))
+                .height(6.dp)
+                .clip(CircleShape)
+                .background(c.amber),
+        )
+    }
+}
+
+@Composable
+private fun Stat(label: String, value: String, modifier: Modifier) {
+    val c = Grulla.colors
+    SheetCard(modifier) {
+        Column(Modifier.padding(14.dp)) {
+            Text(value, style = MaterialTheme.typography.titleLarge)
+            Text(label, style = MaterialTheme.typography.bodySmall, color = c.graphite)
+        }
+    }
+}
+
+/** "1 h 05 min", "12 min", "0 min". */
+internal fun formatDuration(ms: Long): String {
+    val minutes = ms / 60_000
+    return if (minutes >= 60) "%d h %02d min".format(minutes / 60, minutes % 60) else "$minutes min"
 }
 
 internal fun formatTime(ms: Double): String {

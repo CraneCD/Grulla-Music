@@ -36,6 +36,7 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.grulla.music.audio.AudioEngine
 import com.grulla.music.audio.AudioState
 import com.grulla.music.audio.EngineChoice
+import com.grulla.music.core.listen.ChordSensitivity
 import com.grulla.music.settings.PlayerPreferences
 import com.grulla.music.settings.PlayerSettings
 
@@ -116,6 +117,28 @@ fun SettingsContent(
                     "For Bluetooth page-turn pedals. Page Up and Page Down always turn pages.",
                     player.arrowKeysTurnPages,
                 ) { on -> onPlayer { it.copy(arrowKeysTurnPages = on) } }
+            }
+
+            Section("Follow me") {
+                Toggle(
+                    "Chords: every note must sound",
+                    "A chord counts only when all its notes are heard. Off: any one note of the chord is enough.",
+                    player.chordsNeedAllNotes,
+                ) { on -> onPlayer { it.copy(chordsNeedAllNotes = on) } }
+                if (player.chordsNeedAllNotes) {
+                    Text("How strict", style = MaterialTheme.typography.titleSmall, modifier = Modifier.padding(top = 4.dp))
+                    Column(Modifier.selectableGroup()) {
+                        Choice("Relaxed", "Soft or distant instruments, rooms with echo.", player.chordSensitivity == ChordSensitivity.RELAXED) {
+                            onPlayer { it.copy(chordSensitivity = ChordSensitivity.RELAXED) }
+                        }
+                        Choice("Normal", "Piano and guitar close to the phone.", player.chordSensitivity == ChordSensitivity.NORMAL) {
+                            onPlayer { it.copy(chordSensitivity = ChordSensitivity.NORMAL) }
+                        }
+                        Choice("Strict", "Every note clearly audible.", player.chordSensitivity == ChordSensitivity.STRICT) {
+                            onPlayer { it.copy(chordSensitivity = ChordSensitivity.STRICT) }
+                        }
+                    }
+                }
             }
 
             Section("Sound") {

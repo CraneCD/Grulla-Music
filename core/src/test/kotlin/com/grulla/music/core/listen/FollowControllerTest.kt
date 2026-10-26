@@ -38,6 +38,19 @@ class FollowControllerTest {
     }
 
     @Test
+    fun `with all chord notes required, a chord moves on only when every note is heard`() {
+        val follow = FollowController(steps(setOf(60, 64, 67), setOf(65)), chordsNeedAllNotes = true)
+        assertEquals(setOf(60, 64, 67), follow.expectedChord)
+        assertEquals(FollowResult.IGNORED, follow.onNote(NoteEvent(64, 0.0)))
+        assertEquals(FollowResult.WRONG, follow.onNote(NoteEvent(62, 100.0)))
+        assertEquals(FollowResult.IGNORED, follow.onChord(ChordEvent(setOf(60, 64), 150.0)))
+        assertEquals(0, follow.state.stepIndex)
+        assertEquals(FollowResult.ADVANCED, follow.onChord(ChordEvent(setOf(60, 64, 67), 200.0)))
+        assertEquals(null, follow.expectedChord) // A single note is not a chord.
+        assertEquals(FollowResult.FINISHED, follow.onNote(NoteEvent(65, 600.0)))
+    }
+
+    @Test
     fun `octave errors are tolerated and a missed note can be skipped`() {
         val follow = FollowController(steps(setOf(60), setOf(62), setOf(64), setOf(65)))
         assertEquals(FollowResult.ADVANCED, follow.onNote(NoteEvent(72, 0.0))) // C5 for C4

@@ -19,7 +19,8 @@ import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 
-enum class Transport { STOPPED, PREPARING, COUNTING_IN, PLAYING, PAUSED }
+/** WAITING: paused by [PlaybackController.holdAt] until the player catches up ("Wait for me"). */
+enum class Transport { STOPPED, PREPARING, COUNTING_IN, PLAYING, WAITING, PAUSED }
 
 /** A range of score time (ms at the notated tempo), end exclusive. */
 data class TimeRange(val startMs: Double, val endMs: Double) {
@@ -44,7 +45,8 @@ data class PlaybackState(
     val hasScore: Boolean = false,
 ) {
     val isRunning: Boolean
-        get() = transport == Transport.PREPARING || transport == Transport.COUNTING_IN || transport == Transport.PLAYING
+        get() = transport == Transport.PREPARING || transport == Transport.COUNTING_IN || transport == Transport.PLAYING ||
+            transport == Transport.WAITING
 
     val activeLoop: TimeRange? get() = loop?.takeIf { loopEnabled }
 }
@@ -58,6 +60,9 @@ interface PlaybackListener {
     fun onCountInBeat(beat: Int, total: Int)
 
     fun onPlaybackError(message: String) {}
+
+    /** Playback went round the A–B loop once more. */
+    fun onLoopPass() {}
 }
 
 /**
@@ -107,6 +112,12 @@ class PlaybackController(
     private var job: Job? = null
     private var countInBeat = 0
 
+    /** Score time where playback waits (see [holdAt]); null plays on. */
+    private var holdMs: Double? = null
+
+    /** Last published score time of the running pass, to notice the loop jumping back. */
+    private var lastFrameScoreMs = Double.NaN
+
     init {
         player.onCompletion = { onPlayerCompleted() }
     }
@@ -154,6 +165,7 @@ class PlaybackController(
                 cursorMs = runStartMs
                 resumable = false
             }
+            Transport.WAITING -> Unit // The player is already paused at cursorMs, ready to resume.
             Transport.COUNTING_IN, Transport.PLAYING -> {
                 job?.cancel()
                 player.pause()
@@ -243,6 +255,25 @@ class PlaybackController(
         onLoopChanged()
     }
 
+    /**
+     * "Wait for me": playback pauses just before [scoreMs] (state [Transport.WAITING])
+     * and continues once the hold moves past that point. Null removes the hold.
+     */
+    fun holdAt(scoreMs: Double?) {
+        holdMs = scoreMs
+        if (transport == Transport.WAITING && (scoreMs == null || scoreMs - HOLD_LEAD_MS > cursorMs + 1.0)) {
+            val run = prepared
+            if (run == null || !resumable) {
+                startRun(cursorMs, withCountIn = false)
+                return
+            }
+            smoother.reset()
+            player.start()
+            setTransport(Transport.PLAYING)
+            job = scope.launch { tickLoop(run) }
+        }
+    }
+
     fun release() {
         job?.cancel()
         player.onCompletion = null
@@ -264,6 +295,7 @@ class PlaybackController(
     private fun restartIfRunning() {
         when (transport) {
             Transport.PLAYING -> startRun(currentScoreMs(), withCountIn = false)
+            Transport.WAITING -> startRun(cursorMs, withCountIn = false)
             Transport.PREPARING, Transport.COUNTING_IN -> startRun(runStartMs, runCountIn)
             else -> resumable = false
         }
@@ -320,31 +352,45 @@ class PlaybackController(
     }
 
     private suspend fun tickLoop(run: PreparedMidi) {
-        while (true) {
-            onFrame(run, awaitFrameNanos())
-        }
+        lastFrameScoreMs = Double.NaN
+        while (onFrame(run, awaitFrameNanos())) Unit
     }
 
-    private fun onFrame(run: PreparedMidi, nowNanos: Long) {
+    /** Returns false when ticking should stop (waiting at a hold). */
+    private fun onFrame(run: PreparedMidi, nowNanos: Long): Boolean {
         val playerMs = smoother.estimate(player.positionMs, nowNanos, playing = true)
         val window = run.window
         if (run.countInBeats > 0 && window.isCountingIn(playerMs)) {
             val beatMs = window.leadInMs / run.countInBeats
             val beat = (playerMs / beatMs).toInt().coerceIn(0, run.countInBeats - 1) + 1
             showCountIn(beat, run.countInBeats)
-            return
+            return true
         }
         showCountIn(0, run.countInBeats)
         if (transport == Transport.COUNTING_IN) setTransport(Transport.PLAYING)
         val scoreMs = window.scoreTimeAt(playerMs)
+        val hold = holdMs
+        if (hold != null && scoreMs >= hold - HOLD_LEAD_MS) {
+            // Stop a little early: the synth renders ahead of what is heard.
+            player.pause()
+            cursorMs = currentScoreMs().coerceAtMost(hold)
+            resumable = true
+            setTransport(Transport.WAITING)
+            publishPosition(cursorMs, force = true)
+            return false
+        }
+        if (state.value.activeLoop != null && scoreMs + LOOP_JUMP_MS < lastFrameScoreMs) listener.onLoopPass()
+        lastFrameScoreMs = scoreMs
         tracker?.update(scoreMs)?.let { listener.onSegmentChanged(it.segment, true) }
         publishPosition(scoreMs.coerceAtMost(state.value.durationMs))
+        return true
     }
 
     private fun onPlayerCompleted() {
         if (transport != Transport.PLAYING && transport != Transport.COUNTING_IN) return
         val loop = state.value.activeLoop
         if (restartAtEnd && loop != null) {
+            listener.onLoopPass()
             startRun(loop.startMs, withCountIn = false)
         } else {
             stop()
@@ -377,5 +423,11 @@ class PlaybackController(
 
     private companion object {
         const val POSITION_STEP_MS = 50.0
+
+        /** How far before a hold playback stops (output latency: notes at the hold must not start). */
+        const val HOLD_LEAD_MS = 80.0
+
+        /** A backwards jump this large while looping is the loop starting over. */
+        const val LOOP_JUMP_MS = 250.0
     }
 }
