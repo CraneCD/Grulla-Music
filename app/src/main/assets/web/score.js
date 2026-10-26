@@ -199,7 +199,7 @@
       cursorEl.hidden = true;
       return;
     }
-    if (state.mode === 'page') {
+    if (state.mode === 'page' && follow) {
       const page = state.tk.getPageWithElement(ids[0]);
       if (page > 0 && page !== state.page) {
         state.page = page;

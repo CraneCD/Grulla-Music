@@ -13,7 +13,7 @@ fi
 PROJECT_DIR="${CLAUDE_PROJECT_DIR:-$(cd "$(dirname "$0")/../.." && pwd)}"
 ANDROID_SDK_DIR="${ANDROID_SDK_DIR:-/opt/android-sdk}"
 # Keep in sync with app/build.gradle.kts (compileSdk) and README.md.
-SDK_PACKAGES=("platforms;android-36" "build-tools;36.0.0" "platform-tools")
+SDK_PACKAGES=("platforms;android-37.0" "build-tools;36.0.0" "platform-tools")
 CMDLINE_TOOLS_ZIPS=(
   "commandlinetools-linux-16111833_latest.zip"
   "commandlinetools-linux-13114758_latest.zip"
