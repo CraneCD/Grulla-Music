@@ -13,7 +13,7 @@
  *
  * JS -> Kotlin (window.GrullaHost, an @JavascriptInterface object):
  *   onReady(verovioVersion)
- *   onScoreLoaded(json)      {"pageCount": n, "timemap": [...], "midi": "<base64>"}
+ *   onScoreLoaded(json)      {"pageCount": n, "timemap": [...], "midi": "<base64>", "source": url}
  *   onMeasureTapped(measureId)
  *   onZoomChanged(scale)
  *   onPageChanged(page, pageCount)
@@ -145,7 +145,7 @@
       const midi = tk.renderToMIDI();
       render();
       window.scrollTo(0, 0);
-      host.onScoreLoaded(JSON.stringify({ pageCount: state.pageCount, timemap: timemap, midi: midi }));
+      host.onScoreLoaded(JSON.stringify({ pageCount: state.pageCount, timemap: timemap, midi: midi, source: url }));
     } catch (e) {
       state.loaded = false;
       scoreEl.innerHTML = '';
