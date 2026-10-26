@@ -3,6 +3,9 @@
 
     <!-- No INTERNET permission: the WebView only loads bundled assets through WebViewAssetLoader. -->
 
+    <!-- "Follow me": listens to the instrument to know when to move on. Asked for when first used. -->
+    <uses-permission android:name="android.permission.RECORD_AUDIO" />
+
     <application
         android:name=".GrullaApp"
         android:allowBackup="true"

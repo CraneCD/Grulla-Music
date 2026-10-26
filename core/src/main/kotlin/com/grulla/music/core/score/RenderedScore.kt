@@ -15,6 +15,8 @@ class RenderedScore(
     val midi: MidiFile,
     /** URL the score was loaded from, used to discard results for a score that was replaced meanwhile. */
     val source: String?,
+    /** MIDI pitch of each note id (for listening mode). */
+    val pitches: Map<String, Int> = emptyMap(),
 ) {
     companion object {
         private val json = Json { ignoreUnknownKeys = true }
@@ -25,12 +27,13 @@ class RenderedScore(
             val timemap: List<TimemapEntry> = emptyList(),
             val midi: String = "",
             val source: String? = null,
+            val pitches: Map<String, Int> = emptyMap(),
         )
 
         fun parse(payloadJson: String): RenderedScore {
             val payload = json.decodeFromString<Payload>(payloadJson)
             val midi = MidiReader.read(Base64.getDecoder().decode(payload.midi))
-            return RenderedScore(payload.pageCount, Timemap(payload.timemap), midi, payload.source)
+            return RenderedScore(payload.pageCount, Timemap(payload.timemap), midi, payload.source, payload.pitches)
         }
     }
 }

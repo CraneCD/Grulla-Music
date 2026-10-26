@@ -1,5 +1,9 @@
 package com.grulla.music.ui
 
+import android.Manifest
+import android.content.pm.PackageManager
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
@@ -39,9 +43,12 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import androidx.core.content.ContextCompat
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import com.grulla.music.ListeningState
 import com.grulla.music.ScoreUiState
 import com.grulla.music.ScoreViewModel
 import com.grulla.music.core.playback.PlaybackState
@@ -71,6 +78,18 @@ fun ScoreScreen(viewModel: ScoreViewModel, onBack: () -> Unit, onOpenSettings: (
     val playback by viewModel.playbackState.collectAsStateWithLifecycle()
     val snackbar = remember { SnackbarHostState() }
     var showMixer by remember { mutableStateOf(false) }
+    val context = LocalContext.current
+    val micPermission = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) { granted ->
+        if (granted) viewModel.startListening() else viewModel.showNotice("Listening needs permission to use the microphone.")
+    }
+    val toggleListening = {
+        when {
+            ui.listening != null -> viewModel.stopListening()
+            ContextCompat.checkSelfPermission(context, Manifest.permission.RECORD_AUDIO) == PackageManager.PERMISSION_GRANTED ->
+                viewModel.startListening()
+            else -> micPermission.launch(Manifest.permission.RECORD_AUDIO)
+        }
+    }
 
     LaunchedEffect(ui.error) {
         val message = ui.error ?: return@LaunchedEffect
@@ -115,7 +134,7 @@ fun ScoreScreen(viewModel: ScoreViewModel, onBack: () -> Unit, onOpenSettings: (
                 },
             )
         },
-        bottomBar = { TransportBar(ui, playback, viewModel) },
+        bottomBar = { TransportBar(ui, playback, viewModel, onListen = toggleListening) },
         snackbarHost = { SnackbarHost(snackbar) },
     ) { padding ->
         Box(
@@ -176,7 +195,7 @@ private fun MixerSheet(ui: ScoreUiState, onMute: (Int) -> Unit, onSolo: (Int) ->
 }
 
 @Composable
-private fun TransportBar(ui: ScoreUiState, playback: PlaybackState, actions: TransportActions) {
+private fun TransportBar(ui: ScoreUiState, playback: PlaybackState, actions: TransportActions, onListen: () -> Unit) {
     Surface(tonalElevation = 3.dp) {
         Column(
             Modifier
@@ -195,12 +214,17 @@ private fun TransportBar(ui: ScoreUiState, playback: PlaybackState, actions: Tra
                         Icon(AppIcons.Play, contentDescription = "Play")
                     }
                 }
-                Column {
-                    Text(
-                        "${formatTime(playback.positionMs)} / ${formatTime(playback.durationMs)}",
-                        style = MaterialTheme.typography.titleSmall.copy(fontFeatureSettings = "tnum"),
-                    )
-                    Text(statusText(playback), style = MaterialTheme.typography.labelSmall)
+                val listening = ui.listening
+                if (listening != null) {
+                    ListeningStatus(listening)
+                } else {
+                    Column {
+                        Text(
+                            "${formatTime(playback.positionMs)} / ${formatTime(playback.durationMs)}",
+                            style = MaterialTheme.typography.titleSmall.copy(fontFeatureSettings = "tnum"),
+                        )
+                        Text(statusText(playback), style = MaterialTheme.typography.labelSmall)
+                    }
                 }
                 Spacer(Modifier.weight(1f))
                 if (ui.layoutMode == LayoutMode.PAGE && ui.pageCount > 1) {
@@ -218,6 +242,13 @@ private fun TransportBar(ui: ScoreUiState, playback: PlaybackState, actions: Tra
                 verticalAlignment = Alignment.CenterVertically,
                 horizontalArrangement = Arrangement.spacedBy(8.dp),
             ) {
+                FilterChip(
+                    selected = ui.listening != null,
+                    enabled = playback.hasScore,
+                    onClick = onListen,
+                    leadingIcon = { Icon(AppIcons.Mic, contentDescription = null, modifier = Modifier.size(18.dp)) },
+                    label = { Text("Follow me") },
+                )
                 FilterChip(
                     selected = playback.countInEnabled,
                     onClick = { actions.setCountIn(!playback.countInEnabled) },
@@ -255,6 +286,20 @@ private fun TransportBar(ui: ScoreUiState, playback: PlaybackState, actions: Tra
             }
             TempoSlider(playback.tempoPercent, actions::setTempoPercent)
         }
+    }
+}
+
+/** While listening: what to play next and what the microphone hears. */
+@Composable
+private fun ListeningStatus(state: ListeningState) {
+    Column {
+        Text("Play ${state.expected}", style = MaterialTheme.typography.titleSmall, maxLines = 1, overflow = TextOverflow.Ellipsis)
+        val wrong = state.wrong?.let { " · not $it" }.orEmpty()
+        Text(
+            "Hearing ${state.hearing}$wrong · ${state.step}/${state.total}",
+            style = MaterialTheme.typography.labelSmall,
+            color = if (state.wrong != null) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.onSurfaceVariant,
+        )
     }
 }
 

@@ -7,6 +7,12 @@ import android.util.Base64
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import com.grulla.music.core.library.LibraryEntry
+import com.grulla.music.core.listen.FollowController
+import com.grulla.music.core.listen.FollowResult
+import com.grulla.music.core.listen.FollowScore
+import com.grulla.music.core.listen.NoteEvent
+import com.grulla.music.core.listen.PitchEstimate
+import com.grulla.music.core.listen.noteName
 import com.grulla.music.core.library.ScoreSettings
 import com.grulla.music.core.playback.MixState
 import com.grulla.music.core.playback.Mixer
@@ -20,6 +26,7 @@ import com.grulla.music.core.score.LoadedScore
 import com.grulla.music.core.score.PartListParser
 import com.grulla.music.core.score.RenderedScore
 import com.grulla.music.core.timemap.Timemap
+import com.grulla.music.listen.MicrophoneListener
 import com.grulla.music.playback.awaitFrameNanos
 import com.grulla.music.score.LayoutMode
 import com.grulla.music.score.ScoreFiles
@@ -62,6 +69,19 @@ data class ScoreUiState(
     val mix: MixState = MixState(),
     /** False until the score has been rendered and its saved settings applied. */
     val ready: Boolean = false,
+    /** "Follow me" listening mode; null when off. */
+    val listening: ListeningState? = null,
+)
+
+data class ListeningState(
+    /** Note names to play next, e.g. "E4" or "C4 / E4 / G4". */
+    val expected: String,
+    val step: Int,
+    val total: Int,
+    /** What the microphone hears right now ("–" when nothing clear). */
+    val hearing: String = "–",
+    /** The last note that did not match, shown briefly. */
+    val wrong: String? = null,
 )
 
 class ScoreViewModel(application: Application) :
@@ -100,6 +120,7 @@ class ScoreViewModel(application: Application) :
     private var thumbnailWanted = false
 
     /** The rendered score's timemap and MusicXML (for measure lookups and the part list). */
+    private var rendered: RenderedScore? = null
     private var timemap: Timemap? = null
     private var musicXml: String? = null
 
@@ -137,6 +158,7 @@ class ScoreViewModel(application: Application) :
     }
 
     private fun open(uri: String) {
+        stopListening()
         saveSettingsNow()
         openJob?.cancel()
         playback.stop()
@@ -162,6 +184,7 @@ class ScoreViewModel(application: Application) :
 
     private fun showScore(score: LoadedScore, title: String, settings: ScoreSettings) {
         playback.clearScore()
+        rendered = null
         timemap = null
         musicXml = score.musicXml
         pendingLoopStart = null
@@ -194,6 +217,7 @@ class ScoreViewModel(application: Application) :
 
     /** Leaving the score screen: stop the music and remember where we were. */
     fun leaveScore() {
+        stopListening()
         playback.pause()
         saveSettingsNow()
     }
@@ -292,6 +316,8 @@ class ScoreViewModel(application: Application) :
                 return@launch
             }
             if (rendered.source != expectedSource || ScoreOrigin.scoreUrl(scoreVersion) != expectedSource) return@launch
+            stopListening()
+            this@ScoreViewModel.rendered = rendered
             timemap = rendered.timemap
             playback.setScore(rendered.timemap, rendered.midi)
             mutableUi.update { it.copy(loading = false, pageCount = rendered.pageCount, mixer = channels, mix = MixState()) }
@@ -311,6 +337,13 @@ class ScoreViewModel(application: Application) :
     }
 
     override fun onMeasureTapped(measureId: String) {
+        val follow = follow
+        if (follow != null) {
+            // While listening, tapping a measure moves the expected position there.
+            follow.startAt(timemap?.measureStartMs(measureId) ?: return)
+            showFollowStep()
+            return
+        }
         playback.seekToMeasure(measureId)
     }
 
@@ -360,13 +393,90 @@ class ScoreViewModel(application: Application) :
         mutableUi.update { it.copy(error = message) }
     }
 
+    // --- "Follow me": listen to the player --------------------------------------------
+
+    private var follow: FollowController? = null
+    private var microphone: MicrophoneListener? = null
+
+    /** Call only with the RECORD_AUDIO permission granted. */
+    @android.annotation.SuppressLint("MissingPermission")
+    fun startListening() {
+        val score = rendered ?: return
+        if (follow != null) return
+        playback.pause()
+        // Follow the parts that are audible in the mixer: solo or mute the others to choose your part.
+        val state = mutableUi.value
+        val silenced = state.mix.silencedTracks(state.mixer)
+        val tracks = state.mixer.map { it.trackIndex }.filter { it !in silenced }.toSet().takeIf { state.mixer.isNotEmpty() }
+        val steps = FollowScore.build(score.timemap, score.pitches, score.midi, tracks)
+        if (steps.steps.isEmpty()) {
+            mutableUi.update { it.copy(notice = "There are no notes to follow in the selected parts.") }
+            return
+        }
+        val controller = FollowController(steps).also { it.startAt(playbackState.value.positionMs) }
+        val mic = MicrophoneListener(onNote = ::onHeard, onLevel = ::onHearing)
+        if (!mic.start(app)) {
+            mutableUi.update { it.copy(error = "The microphone could not be opened.") }
+            return
+        }
+        follow = controller
+        microphone = mic
+        showFollowStep()
+    }
+
+    fun stopListening() {
+        microphone?.stop()
+        microphone = null
+        val controller = follow ?: return
+        follow = null
+        mutableUi.update { it.copy(listening = null) }
+        // Playback continues from where the player got to.
+        controller.currentStep?.let { playback.seekTo(it.timeMs) }
+    }
+
+    private fun onHeard(event: NoteEvent) {
+        val controller = follow ?: return
+        when (controller.onNote(event)) {
+            FollowResult.ADVANCED, FollowResult.SKIPPED_AHEAD -> showFollowStep()
+            FollowResult.WRONG -> mutableUi.update { it.copy(listening = it.listening?.copy(wrong = noteName(event.midi))) }
+            FollowResult.FINISHED -> {
+                stopListening()
+                commandChannel.trySend(WebCommand.Highlight(emptyList(), false))
+                mutableUi.update { it.copy(notice = "Well done! You reached the end.") }
+            }
+            FollowResult.IGNORED -> Unit
+        }
+    }
+
+    private fun onHearing(estimate: PitchEstimate) {
+        val midi = estimate.midi
+        val name = if (midi != null && estimate.confidence >= 0.75) noteName(Math.round(midi).toInt()) else "–"
+        mutableUi.update { state -> state.copy(listening = state.listening?.copy(hearing = name)) }
+    }
+
+    private fun showFollowStep() {
+        val controller = follow ?: return
+        val step = controller.currentStep ?: return
+        commandChannel.trySend(WebCommand.Highlight(step.noteIds, follow = true))
+        val expected = step.pitches.sorted().joinToString(" / ") { noteName(it) }
+        mutableUi.update {
+            it.copy(listening = ListeningState(expected, controller.state.stepIndex + 1, controller.state.total, it.listening?.hearing ?: "–"))
+        }
+    }
+
     // --- User actions --------------------------------------------------------------
 
-    override fun togglePlay() = playback.togglePlay()
+    override fun togglePlay() {
+        stopListening()
+        playback.togglePlay()
+    }
 
     fun pause() = playback.pause()
 
-    override fun stop() = playback.stop()
+    override fun stop() {
+        stopListening()
+        playback.stop()
+    }
 
     override fun setTempoPercent(percent: Int) = playback.setTempoPercent(percent)
 
@@ -425,12 +535,15 @@ class ScoreViewModel(application: Application) :
 
     fun dismissNotice() = mutableUi.update { it.copy(notice = null) }
 
+    fun showNotice(message: String) = mutableUi.update { it.copy(notice = message) }
+
     private fun sendLayout() {
         val state = mutableUi.value
         commandChannel.trySend(WebCommand.SetLayout(state.scale, state.layoutMode))
     }
 
     override fun onCleared() {
+        stopListening()
         saveSettingsNow()
         playback.release()
         commandChannel.close()
