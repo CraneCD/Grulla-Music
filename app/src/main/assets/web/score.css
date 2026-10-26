@@ -1,9 +1,40 @@
+/* Crane & Ink theme. Day by default; <html data-theme="night"> switches (grulla.setTheme). */
+@font-face {
+  font-family: 'Fraunces';
+  src: url('../fonts/Fraunces-Variable.ttf') format('truetype');
+  font-weight: 100 900;
+}
+
 :root {
-  --page-bg: #ffffff;
-  --gap-bg: #e9e7e2;
-  --playing: #d9480f;
-  --cursor: rgba(255, 166, 0, 0.22);
-  --cursor-edge: rgba(217, 72, 15, 0.55);
+  --gap-bg: #F4F2EE;          /* Paper: around and between pages */
+  --page-bg: #FFFFFF;         /* Sheet */
+  --ink: #15181C;             /* notation */
+  --crown: #C4302B;           /* sound: notes being played */
+  --crown-cursor: rgba(196, 48, 43, 0.10);
+  --crown-edge: rgba(196, 48, 43, 0.75);
+  --you: #3454A0;             /* you: loop, notes to play in Follow me */
+  --you-cursor: rgba(52, 84, 160, 0.10);
+  --you-edge: rgba(52, 84, 160, 0.80);
+  --loop-fill: rgba(52, 84, 160, 0.07);
+  --loop-line: rgba(52, 84, 160, 0.50);
+  --badge-bg: #15181C;
+  --badge-fg: #FFFFFF;
+}
+
+:root[data-theme="night"] {
+  --gap-bg: #0F1113;          /* Stage */
+  --page-bg: #17191C;         /* Night sheet */
+  --ink: #E4DFD6;             /* Chalk */
+  --crown: #FF7466;
+  --crown-cursor: rgba(255, 116, 102, 0.14);
+  --crown-edge: rgba(255, 116, 102, 0.80);
+  --you: #9DB2EC;
+  --you-cursor: rgba(157, 178, 236, 0.14);
+  --you-edge: rgba(157, 178, 236, 0.85);
+  --loop-fill: rgba(157, 178, 236, 0.08);
+  --loop-line: rgba(157, 178, 236, 0.55);
+  --badge-bg: #E4DFD6;
+  --badge-fg: #15181C;
 }
 
 html, body {
@@ -29,9 +60,12 @@ html, body {
   margin-top: 8px;
 }
 
+/* Verovio draws everything in currentColor from the root <svg>. */
 .page svg {
   display: block;
   margin: 0 auto;
+  color: var(--ink);
+  fill: var(--ink);
 }
 
 /* Page mode: one page at a time, filling the viewport. */
@@ -39,14 +73,24 @@ body.mode-page .page {
   min-height: 100vh;
 }
 
-/* Notes that are currently sounding. Verovio draws with currentColor and fill attributes. */
+/* Notes sounding now (playback). */
 .playing {
-  color: var(--playing);
-  fill: var(--playing);
+  color: var(--crown);
+  fill: var(--crown);
 }
 
 .playing path {
-  stroke: var(--playing);
+  stroke: var(--crown);
+}
+
+/* Notes to play next (Follow me). */
+.expected {
+  color: var(--you);
+  fill: var(--you);
+}
+
+.expected path {
+  stroke: var(--you);
 }
 
 #loop-layer {
@@ -57,44 +101,49 @@ body.mode-page .page {
 
 .loop-band {
   position: absolute;
-  background: rgba(31, 111, 235, 0.10);
-  border-top: 2px solid rgba(31, 111, 235, 0.55);
-  border-bottom: 2px solid rgba(31, 111, 235, 0.55);
+  background: var(--loop-fill);
+  border-top: 2px solid var(--loop-line);
+  border-bottom: 2px solid var(--loop-line);
 }
 
 .loop-band.loop-start {
-  border-left: 3px solid rgba(31, 111, 235, 0.85);
+  border-left: 4px solid var(--you);
 }
 
 .loop-band.loop-end {
-  border-right: 3px solid rgba(31, 111, 235, 0.85);
+  border-right: 4px solid var(--you);
 }
 
 .loop-band.loop-start::before,
 .loop-band.loop-end::after {
   position: absolute;
-  top: -18px;
-  font: 700 12px/16px system-ui, sans-serif;
-  color: rgba(31, 111, 235, 0.95);
+  top: -20px;
+  font: 700 13px/16px system-ui, sans-serif;
+  color: var(--you);
 }
 
 .loop-band.loop-start::before {
   content: 'A';
-  left: -2px;
+  left: -3px;
 }
 
 .loop-band.loop-end::after {
   content: 'B';
-  right: -2px;
+  right: -3px;
 }
 
 #cursor {
   position: absolute;
   pointer-events: none;
-  background: var(--cursor);
-  border-left: 2px solid var(--cursor-edge);
-  border-radius: 3px;
+  background: var(--crown-cursor);
+  border-left: 3px solid var(--crown-edge);
+  border-radius: 4px;
   transition: left 90ms linear, top 160ms ease-out, height 160ms ease-out;
+}
+
+#cursor.listen {
+  background: var(--you-cursor);
+  border-left-color: var(--you-edge);
 }
 
 #cursor.jump {
@@ -105,20 +154,21 @@ body.mode-page .page {
   display: none;
 }
 
-/* Count-in: large beat number at the top of the screen. */
+/* Count-in: the beat number in a round ink badge; the downbeat flashes crown red. */
 #count-in {
   position: fixed;
-  top: 16px;
+  top: 20px;
   left: 50%;
-  transform: translateX(-50%);
-  min-width: 72px;
-  padding: 4px 18px;
-  border-radius: 36px;
-  background: rgba(32, 32, 32, 0.78);
-  color: #fff;
-  font: 700 48px/1.2 system-ui, sans-serif;
+  width: 84px;
+  height: 84px;
+  margin-left: -42px;
+  border-radius: 42px;
+  background: var(--badge-bg);
+  color: var(--badge-fg);
+  font: 600 48px/84px 'Fraunces', Georgia, serif;
   text-align: center;
   pointer-events: none;
+  box-shadow: 0 6px 18px rgba(0, 0, 0, 0.18);
 }
 
 #count-in[hidden] {
@@ -129,7 +179,12 @@ body.mode-page .page {
   animation: beat 0.3s ease-out;
 }
 
+#count-in.downbeat {
+  background: var(--crown);
+  color: #FFFFFF;
+}
+
 @keyframes beat {
-  from { transform: translateX(-50%) scale(1.25); background: rgba(217, 72, 15, 0.9); }
-  to { transform: translateX(-50%) scale(1); }
+  from { transform: scale(1.18); }
+  to { transform: scale(1); }
 }

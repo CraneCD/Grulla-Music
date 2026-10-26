@@ -40,6 +40,15 @@ class Timemap(entries: List<TimemapEntry>) {
         for (measure in measures) putIfAbsent(measure.id, measure)
     }
 
+    /** Bar number (1-based) of each measure, in the order measures first appear; repeats keep their number. */
+    private val barNumbers: Map<String, Int> = measureById.keys.withIndex().associate { (i, id) -> id to i + 1 }
+
+    /** Number of distinct measures (bars) in the score. */
+    val barCount: Int get() = barNumbers.size
+
+    /** Bar number at [timeMs] (1-based), or 0 for an empty score. */
+    fun barAt(timeMs: Double): Int = measureAt(timeMs)?.let { barNumbers[it.id] } ?: 0
+
     /** Time of the last event (normally the release of the final notes). */
     val durationMs: Double = this.entries.lastOrNull()?.tstamp ?: 0.0
 

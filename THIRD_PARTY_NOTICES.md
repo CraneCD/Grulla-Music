@@ -47,10 +47,18 @@ by the `:synth` build and loaded as separate libraries. The app's own native cod
 - License: MIT. Copyright Frank Wen (Fluid R3), Michael Cowgill (mono version), and the
   contributors credited in `assets/licenses/FluidR3Mono-License.md`.
 
-### Material icon path data
+### Fonts
 
-The icons in `app/src/main/kotlin/com/grulla/music/ui/Icons.kt` use path data from
-Google's Material Icons, under the Apache License 2.0.
+- Fraunces (© 2018 The Fraunces Project Authors) and Inter (© 2020 The Inter Project
+  Authors), variable TTFs from the
+  Google Fonts repository (https://github.com/google/fonts, `ofl/fraunces`, `ofl/inter`),
+  in `app/src/main/assets/fonts/`, under the SIL Open Font License 1.1
+  (`assets/licenses/Fraunces-OFL.txt`, `Inter-OFL.txt`).
+
+### Icons
+
+The icons in `app/src/main/kotlin/com/grulla/music/ui/Icons.kt` and the Grulla mark
+were drawn for this project.
 
 ## Build and runtime dependencies (not vendored)
 

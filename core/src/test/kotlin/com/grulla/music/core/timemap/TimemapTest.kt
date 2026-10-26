@@ -50,6 +50,9 @@ class TimemapTest {
         )
         assertEquals(1000.0, repeated.measureStartMs("b"))
         assertEquals(4, repeated.measures.size)
+        assertEquals(2, repeated.barCount)
+        assertEquals(1, repeated.barAt(2500.0), "the second pass of bar 1 is still bar 1")
+        assertEquals(2, repeated.barAt(3500.0))
         assertEquals(2000.0, repeated.measureAt(2500.0)?.timeMs)
     }
 

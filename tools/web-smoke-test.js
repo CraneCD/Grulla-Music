@@ -152,9 +152,20 @@ async function shot(page, name) {
     check(await page.locator('#count-in').isVisible(), 'count-in badge visible');
     await shot(page, '4-page-mode');
 
+    // Night theme and the Follow me ("listen") highlight style.
+    await page.evaluate(() => window.grulla.setTheme('night'));
+    check(await page.evaluate(() => document.documentElement.dataset.theme) === 'night', 'night theme applied');
+    const inkColor = await page.evaluate(() => getComputedStyle(document.querySelector('.page svg')).color);
+    check(inkColor === 'rgb(228, 223, 214)', 'night notation colour (' + inkColor + ')');
+    await page.evaluate((ids) => window.grulla.highlight(ids, true, 'listen'), last.on);
+    check(await page.locator('.expected').count() === last.on.length && await page.locator('.playing').count() === 0, 'listen highlight uses the expected style');
+    check(await page.evaluate(() => document.getElementById('cursor').classList.contains('listen')), 'cursor in listen style');
+    await shot(page, '5-night-listen');
+    await page.evaluate(() => window.grulla.setTheme('day'));
+
     // Clearing and bad input.
     await page.evaluate(() => { window.grulla.countIn(0, 4); window.grulla.clearHighlight(); });
-    check(await page.locator('.playing').count() === 0, 'clearHighlight removes highlight');
+    check(await page.locator('.playing, .expected').count() === 0, 'clearHighlight removes highlight');
     mark = await eventCount(page);
     await page.evaluate(() => window.grulla.load('/samples/missing.musicxml', {}));
     const error = await waitForEvent(page, 'onError', mark);

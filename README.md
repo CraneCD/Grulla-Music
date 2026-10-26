@@ -37,6 +37,22 @@ ground as MuseScore's player, but uses no MuseScore code (see [Licensing](#licen
   - Any note of a chord counts, octave errors are tolerated, and a missed note can be skipped.
   - It follows the parts audible in the mixer: solo your part to follow just that part.
 
+### Design: "Crane & Ink"
+
+The theme is named after the red-crowned crane (*grulla*): white paper, black ink and
+one red crown.
+- **Crown red means sound:** the play button, the notes being played, the cursor and
+  the count-in.
+- **Indigo means you:** the A–B loop, selected toggles, and the notes Follow me waits for.
+- **Amber means attention:** wrong notes.
+- **Type:** Fraunces (an engraved-style serif) for titles and note names; Inter for controls.
+- **Night mode:** a dark page with light notation. It is a setting (Follow system /
+  Always day / Always night) and also restyles the score page.
+- **Code:** colors and type are in `ui/Theme.kt`, the score page's styles in
+  `assets/web/score.css`.
+- **Screenshots:** reference screenshots of every screen are in
+  [app/screenshots](app/screenshots).
+
 ### Getting scores into MusicXML
 
 | Source | Conversion |
@@ -142,7 +158,8 @@ The build downloads two things and checks each against a pinned SHA-256:
 
 ```sh
 ./gradlew assembleDebug                 # → app/build/outputs/apk/debug/app-debug.apk
-./gradlew test                          # JVM unit tests (:core, :synth)
+./gradlew test                          # JVM unit tests (:core, :synth, :app screenshots)
+./gradlew :app:verifyRoborazziDebug     # compare the screens with app/screenshots (record: recordRoborazziDebug)
 ./gradlew lintDebug
 tools/test-synth-native.sh              # native core tests (ASan/UBSan), needs g++ (+ libfluidsynth-dev)
 node tools/web-smoke-test.js [shots/]   # WebView page in headless Chromium, needs playwright
@@ -156,6 +173,9 @@ The native libraries are 16 KB page-aligned.
 **SDK levels.** `compileSdk` is 37, which Compose 1.12 requires. `targetSdk` stays at 36
 until the app has been tested against Android 17 behaviour changes; lint reports this
 intentionally.
+
+**Screenshot tests** (Robolectric + Roborazzi) run on Java 21, which Robolectric needs
+for Android 16. Gradle uses an installed JDK 21 as a toolchain; Android Studio ships one.
 
 **Claude Code cloud sessions.** `.claude/hooks/session-start.sh` installs:
 - JDK 17
@@ -178,6 +198,9 @@ The environment's network access must allow `dl.google.com` and `github.com`.
   The fixtures in `core/src/test/resources/fixtures/` are real Verovio 6.3.0 output. One
   listening test runs on a real piano recording (`piano-melody-22050.wav`, rendered with
   FluidSynth and the default SoundFont), with and without added noise.
+- **Screenshot tests** (`app/src/test/.../ScreenshotTest.kt`) render the Library, Score
+  (loop, page view, night), Follow me and Settings screens on the JVM. They are compared
+  with the references in `app/screenshots/`.
 - **`tools/test-synth-native.sh`** builds the native scheduler for the host, with
   AddressSanitizer and UBSan. It tests sample-accurate events, loop wrap, pause/resume, the
   position history and completion, and renders audio through the system's FluidSynth.

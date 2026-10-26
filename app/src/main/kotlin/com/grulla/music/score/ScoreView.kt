@@ -21,9 +21,12 @@ import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.toArgb
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.viewinterop.AndroidView
 import androidx.webkit.WebViewAssetLoader
+import com.grulla.music.ui.DayColors
+import com.grulla.music.ui.NightColors
 import java.io.ByteArrayInputStream
 import kotlinx.coroutines.flow.Flow
 import org.json.JSONArray
@@ -35,7 +38,10 @@ enum class LayoutMode(val js: String) { CONTINUOUS("continuous"), PAGE("page") }
 sealed interface WebCommand {
     data class Load(val url: String, val scale: Int, val mode: LayoutMode) : WebCommand
     data class SetLayout(val scale: Int, val mode: LayoutMode) : WebCommand
-    data class Highlight(val noteIds: List<String>, val follow: Boolean) : WebCommand
+    data class Highlight(val noteIds: List<String>, val follow: Boolean, val kind: Kind = Kind.PLAY) : WebCommand {
+        /** PLAY: sounding now (crown red). LISTEN: what to play next in Follow me (indigo). */
+        enum class Kind(val js: String) { PLAY("play"), LISTEN("listen") }
+    }
     data class ShowPage(val page: Int) : WebCommand
     data class CountIn(val beat: Int, val total: Int) : WebCommand
     /** Shade measures [firstId]..[lastId]; null clears the loop shading. */
@@ -46,7 +52,7 @@ sealed interface WebCommand {
     fun toJavaScript(): String = "window.grulla && " + when (this) {
         is Load -> "grulla.load(${JSONObject.quote(url)}, ${layoutJson(scale, mode)})"
         is SetLayout -> "grulla.setLayout(${layoutJson(scale, mode)})"
-        is Highlight -> "grulla.highlight(${JSONArray(noteIds)}, $follow)"
+        is Highlight -> "grulla.highlight(${JSONArray(noteIds)}, $follow, '${kind.js}')"
         is ShowPage -> "grulla.showPage($page)"
         is CountIn -> "grulla.countIn($beat, $total)"
         is SetLoop -> "grulla.setLoop(${firstId?.let(JSONObject::quote)}, ${lastId?.let(JSONObject::quote)})"
@@ -92,16 +98,23 @@ fun ScoreView(
     commands: Flow<WebCommand>,
     callbacks: ScoreWebCallbacks,
     scoreBytes: () -> ByteArray?,
+    night: Boolean,
     modifier: Modifier = Modifier,
 ) {
     val context = LocalContext.current
+    val theme = remember { ThemeHolder() }
+    theme.night = night
     // Bumped when the WebView's render process dies; a fresh WebView then reloads the score.
     var generation by remember { mutableIntStateOf(0) }
     val webView = remember(generation) {
-        createScoreWebView(context, callbacks, scoreBytes, onRendererGone = { generation++ })
+        createScoreWebView(context, callbacks, scoreBytes, theme, onRendererGone = { generation++ })
     }
     key(generation) {
         AndroidView(factory = { webView }, modifier = modifier)
+    }
+    LaunchedEffect(webView, night) {
+        webView.setBackgroundColor((if (night) NightColors.paper else DayColors.paper).toArgb())
+        webView.evaluateJavascript(theme.script(), null)
     }
     LaunchedEffect(webView) {
         commands.collect { command -> webView.evaluateJavascript(command.toJavaScript(), null) }
@@ -111,11 +124,20 @@ fun ScoreView(
     }
 }
 
+/** Day or night for the page; read again whenever the page (re)loads. */
+private class ThemeHolder {
+    @Volatile
+    var night = false
+
+    fun script() = "window.grulla && grulla.setTheme('${if (night) "night" else "day"}')"
+}
+
 @SuppressLint("SetJavaScriptEnabled")
 private fun createScoreWebView(
     context: Context,
     callbacks: ScoreWebCallbacks,
     scoreBytes: () -> ByteArray?,
+    theme: ThemeHolder,
     onRendererGone: () -> Unit,
 ): WebView {
     val assetLoader = WebViewAssetLoader.Builder()
@@ -137,7 +159,8 @@ private fun createScoreWebView(
         settings.setSupportZoom(false) // score.js handles pinch zoom by re-laying out the score
         settings.builtInZoomControls = false
         settings.displayZoomControls = false
-        webViewClient = ScoreWebViewClient(assetLoader, callbacks, onRendererGone)
+        setBackgroundColor((if (theme.night) NightColors.paper else DayColors.paper).toArgb())
+        webViewClient = ScoreWebViewClient(assetLoader, callbacks, theme, onRendererGone)
         // Only our own bundled page is ever loaded, so exposing the bridge is safe.
         addJavascriptInterface(ScoreHostBridge(callbacks), "GrullaHost")
         loadUrl(ScoreOrigin.PAGE_URL)
@@ -149,8 +172,13 @@ private fun createScoreWebView(
 private class ScoreWebViewClient(
     private val assetLoader: WebViewAssetLoader,
     private val callbacks: ScoreWebCallbacks,
+    private val theme: ThemeHolder,
     private val onRendererGone: () -> Unit,
 ) : WebViewClient() {
+    override fun onPageFinished(view: WebView, url: String?) {
+        view.evaluateJavascript(theme.script(), null)
+    }
+
     override fun shouldInterceptRequest(view: WebView, request: WebResourceRequest): WebResourceResponse? =
         assetLoader.shouldInterceptRequest(request.url)
 

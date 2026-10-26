@@ -48,6 +48,15 @@ class FollowControllerTest {
     }
 
     @Test
+    fun `skip moves past a note that is not heard`() {
+        val follow = FollowController(steps(setOf(60), setOf(62)))
+        assertEquals(FollowResult.SKIPPED_AHEAD, follow.skip())
+        assertEquals(setOf(62), follow.state.expected)
+        assertEquals(FollowResult.FINISHED, follow.skip())
+        assertEquals(FollowResult.FINISHED, follow.skip())
+    }
+
+    @Test
     fun `start position picks the next step`() {
         val follow = FollowController(steps(setOf(60), setOf(62), setOf(64)))
         follow.startAt(600.0)

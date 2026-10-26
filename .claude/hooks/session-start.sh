@@ -37,6 +37,13 @@ fi
 export JAVA_HOME="$JDK17_HOME"
 persist_env JAVA_HOME "$JDK17_HOME"
 
+# JDK 21 runs the app's screenshot tests (Robolectric's Android 16 needs it); Gradle finds it as a toolchain.
+if [ ! -x /usr/lib/jvm/java-21-openjdk-amd64/bin/java ]; then
+  log "Installing OpenJDK 21 (test runtime)"
+  apt-get update -qq
+  DEBIAN_FRONTEND=noninteractive apt-get install -y -qq openjdk-21-jdk-headless >/dev/null || log "WARNING: JDK 21 not installed"
+fi
+
 # FluidSynth headers/library for the host tests of the native synth (tools/test-synth-native.sh).
 if ! pkg-config --exists fluidsynth 2>/dev/null; then
   log "Installing libfluidsynth-dev"

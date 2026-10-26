@@ -96,6 +96,15 @@ class FollowController(
         lastResult = null
     }
 
+    /** Moves past the current step without hearing it (e.g. a note the microphone cannot pick up). */
+    fun skip(): FollowResult {
+        if (index >= score.steps.size) return FollowResult.FINISHED
+        index++
+        lastHeard = null
+        lastResult = if (index >= score.steps.size) FollowResult.FINISHED else FollowResult.SKIPPED_AHEAD
+        return lastResult!!
+    }
+
     fun onNote(event: NoteEvent): FollowResult {
         lastHeard = event.midi
         val result = when {

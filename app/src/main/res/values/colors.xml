@@ -1,5 +1,6 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
-    <color name="window_background">#FFF7F5F0</color>
-    <color name="ic_launcher_background">#FF1F3A5F</color>
+    <!-- Crane & Ink: Paper (day). Shown before Compose draws. -->
+    <color name="window_background">#FFF4F2EE</color>
+    <color name="ic_launcher_background">#FFF4F2EE</color>
 </resources>

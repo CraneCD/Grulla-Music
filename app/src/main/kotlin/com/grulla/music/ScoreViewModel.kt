@@ -33,7 +33,8 @@ import com.grulla.music.score.ScoreFiles
 import com.grulla.music.score.ScoreOrigin
 import com.grulla.music.score.ScoreWebCallbacks
 import com.grulla.music.score.WebCommand
-import com.grulla.music.ui.TransportActions
+import com.grulla.music.ui.BarInfo
+import com.grulla.music.ui.ScoreActions
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.FlowPreview
@@ -54,6 +55,7 @@ import kotlinx.coroutines.withContext
 
 data class ScoreUiState(
     val title: String = "",
+    val composer: String? = null,
     val loading: Boolean = false,
     val error: String? = null,
     val scale: Int = ScoreViewModel.DEFAULT_SCALE,
@@ -71,6 +73,8 @@ data class ScoreUiState(
     val ready: Boolean = false,
     /** "Follow me" listening mode; null when off. */
     val listening: ListeningState? = null,
+    /** Label of the A–B loop, e.g. "Loop 3–5". */
+    val loopLabel: String? = null,
 )
 
 data class ListeningState(
@@ -78,6 +82,8 @@ data class ListeningState(
     val expected: String,
     val step: Int,
     val total: Int,
+    /** The parts being followed, e.g. "All parts" or "Piano – upper staff". */
+    val part: String,
     /** What the microphone hears right now ("–" when nothing clear). */
     val hearing: String = "–",
     /** The last note that did not match, shown briefly. */
@@ -88,7 +94,7 @@ class ScoreViewModel(application: Application) :
     AndroidViewModel(application),
     ScoreWebCallbacks,
     PlaybackListener,
-    TransportActions {
+    ScoreActions {
     private val app = application as GrullaApp
     private val files = ScoreFiles(application)
     private val library = app.library
@@ -179,6 +185,7 @@ class ScoreViewModel(application: Application) :
             savedSettings = entry.settings
             thumbnailWanted = library.thumbnailFile(entry) == null
             showScore(score, title, entry.settings)
+            mutableUi.update { it.copy(composer = score.composer) }
         }
     }
 
@@ -194,6 +201,8 @@ class ScoreViewModel(application: Application) :
         mutableUi.update {
             it.copy(
                 title = title,
+                composer = null,
+                loopLabel = null,
                 loading = true,
                 ready = false,
                 error = null,
@@ -268,6 +277,16 @@ class ScoreViewModel(application: Application) :
         }
     }
 
+    /** Bar position for the top bar, e.g. bar 5 of 16. */
+    fun barAt(positionMs: Double): BarInfo? = timemap?.let { BarInfo(it.barAt(positionMs), it.barCount) }
+
+    private fun loopLabel(range: TimeRange): String? {
+        val map = timemap ?: return null
+        val first = map.barAt(range.startMs)
+        val last = map.barAt(range.endMs - 1)
+        return if (first == last) "Loop bar $first" else "Loop $first–$last"
+    }
+
     /** Restores what was saved for this score, once it has been rendered. */
     private fun applySettings(settings: ScoreSettings, map: Timemap) {
         playback.setTempoPercent(settings.tempoPercent)
@@ -283,6 +302,7 @@ class ScoreViewModel(application: Application) :
             if (first != null && last != null) {
                 loopMeasures = first.id to last.id
                 playback.setLoop(TimeRange(start, end))
+                mutableUi.update { it.copy(loopLabel = loopLabel(TimeRange(start, end))) }
                 playback.setLoopEnabled(settings.loopEnabled)
                 if (settings.loopEnabled) commandChannel.trySend(WebCommand.SetLoop(first.id, last.id))
             }
@@ -364,7 +384,7 @@ class ScoreViewModel(application: Application) :
         loopMeasures = measures
         playback.setLoop(TimeRange(start, end))
         commandChannel.trySend(WebCommand.SetLoop(measures.first, measures.second))
-        mutableUi.update { it.copy(notice = null) }
+        mutableUi.update { it.copy(notice = null, loopLabel = loopLabel(TimeRange(start, end))) }
     }
 
     override fun onZoomChanged(scale: Int) {
@@ -397,6 +417,7 @@ class ScoreViewModel(application: Application) :
 
     private var follow: FollowController? = null
     private var microphone: MicrophoneListener? = null
+    private var followedPart = "All parts"
 
     /** Call only with the RECORD_AUDIO permission granted. */
     @android.annotation.SuppressLint("MissingPermission")
@@ -414,6 +435,8 @@ class ScoreViewModel(application: Application) :
             return
         }
         val controller = FollowController(steps).also { it.startAt(playbackState.value.positionMs) }
+        followedPart = state.mixer.filter { tracks == null || it.trackIndex in tracks }.map { it.label }
+            .takeIf { it.isNotEmpty() && it.size < state.mixer.size }?.joinToString(", ") ?: "All parts"
         val mic = MicrophoneListener(onNote = ::onHeard, onLevel = ::onHearing)
         if (!mic.start(app)) {
             mutableUi.update { it.copy(error = "The microphone could not be opened.") }
@@ -424,7 +447,22 @@ class ScoreViewModel(application: Application) :
         showFollowStep()
     }
 
-    fun stopListening() {
+    override fun skipNote() {
+        val controller = follow ?: return
+        if (controller.skip() == FollowResult.FINISHED) {
+            onHeardFinished()
+        } else {
+            showFollowStep()
+        }
+    }
+
+    private fun onHeardFinished() {
+        stopListening()
+        commandChannel.trySend(WebCommand.Highlight(emptyList(), false))
+        mutableUi.update { it.copy(notice = "Well done! You reached the end.") }
+    }
+
+    override fun stopListening() {
         microphone?.stop()
         microphone = null
         val controller = follow ?: return
@@ -439,11 +477,7 @@ class ScoreViewModel(application: Application) :
         when (controller.onNote(event)) {
             FollowResult.ADVANCED, FollowResult.SKIPPED_AHEAD -> showFollowStep()
             FollowResult.WRONG -> mutableUi.update { it.copy(listening = it.listening?.copy(wrong = noteName(event.midi))) }
-            FollowResult.FINISHED -> {
-                stopListening()
-                commandChannel.trySend(WebCommand.Highlight(emptyList(), false))
-                mutableUi.update { it.copy(notice = "Well done! You reached the end.") }
-            }
+            FollowResult.FINISHED -> onHeardFinished()
             FollowResult.IGNORED -> Unit
         }
     }
@@ -457,10 +491,18 @@ class ScoreViewModel(application: Application) :
     private fun showFollowStep() {
         val controller = follow ?: return
         val step = controller.currentStep ?: return
-        commandChannel.trySend(WebCommand.Highlight(step.noteIds, follow = true))
+        commandChannel.trySend(WebCommand.Highlight(step.noteIds, follow = true, kind = WebCommand.Highlight.Kind.LISTEN))
         val expected = step.pitches.sorted().joinToString(" / ") { noteName(it) }
         mutableUi.update {
-            it.copy(listening = ListeningState(expected, controller.state.stepIndex + 1, controller.state.total, it.listening?.hearing ?: "–"))
+            it.copy(
+                listening = ListeningState(
+                    expected = expected,
+                    step = controller.state.stepIndex + 1,
+                    total = controller.state.total,
+                    part = followedPart,
+                    hearing = it.listening?.hearing ?: "–",
+                ),
+            )
         }
     }
 
@@ -490,17 +532,31 @@ class ScoreViewModel(application: Application) :
         commandChannel.trySend(if (enabled) WebCommand.SetLoop(measures.first, measures.second) else WebCommand.SetLoop(null, null))
     }
 
+    override fun explainLoop() = showNotice("To loop a passage, long-press its first bar, then its last bar.")
+
+    override fun seekToFraction(fraction: Float) {
+        val map = timemap ?: return
+        val time = fraction.coerceIn(0f, 1f) * map.durationMs
+        val follow = follow
+        if (follow != null) {
+            follow.startAt(time)
+            showFollowStep()
+        } else {
+            playback.seekTo(time)
+        }
+    }
+
     override fun clearLoop() {
         pendingLoopStart = null
         loopMeasures = null
         playback.setLoop(null)
         commandChannel.trySend(WebCommand.SetLoop(null, null))
-        mutableUi.update { it.copy(notice = null) }
+        mutableUi.update { it.copy(notice = null, loopLabel = null) }
     }
 
-    fun toggleMute(track: Int) = updateMix { it.toggleMute(track) }
+    override fun toggleMute(track: Int) = updateMix { it.toggleMute(track) }
 
-    fun toggleSolo(track: Int) = updateMix { it.toggleSolo(track) }
+    override fun toggleSolo(track: Int) = updateMix { it.toggleSolo(track) }
 
     private fun updateMix(change: (MixState) -> MixState) {
         mutableUi.update { it.copy(mix = change(it.mix)) }
@@ -510,9 +566,9 @@ class ScoreViewModel(application: Application) :
 
     override fun setFollow(enabled: Boolean) = mutableUi.update { it.copy(follow = enabled) }
 
-    fun zoomIn() = setScale(mutableUi.value.scale + SCALE_STEP)
+    override fun zoomIn() = setScale(mutableUi.value.scale + SCALE_STEP)
 
-    fun zoomOut() = setScale(mutableUi.value.scale - SCALE_STEP)
+    override fun zoomOut() = setScale(mutableUi.value.scale - SCALE_STEP)
 
     private fun setScale(scale: Int) {
         val clamped = scale.coerceIn(MIN_SCALE, MAX_SCALE)
@@ -520,7 +576,7 @@ class ScoreViewModel(application: Application) :
         sendLayout()
     }
 
-    fun toggleLayoutMode() {
+    override fun toggleLayoutMode() {
         mutableUi.update {
             it.copy(layoutMode = if (it.layoutMode == LayoutMode.PAGE) LayoutMode.CONTINUOUS else LayoutMode.PAGE)
         }

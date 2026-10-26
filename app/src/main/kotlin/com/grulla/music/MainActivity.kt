@@ -2,23 +2,28 @@ package com.grulla.music
 
 import android.content.Intent
 import android.os.Bundle
+import android.graphics.Color
 import androidx.activity.ComponentActivity
+import androidx.activity.SystemBarStyle
 import androidx.activity.compose.BackHandler
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.activity.viewModels
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.compose.LifecycleEventEffect
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.grulla.music.ui.GrullaTheme
 import com.grulla.music.ui.LibraryScreen
 import com.grulla.music.ui.ScoreScreen
 import com.grulla.music.ui.SettingsScreen
+import com.grulla.music.ui.isNightTheme
 
 private enum class Screen { LIBRARY, SCORE, SETTINGS }
 
@@ -34,7 +39,15 @@ class MainActivity : ComponentActivity() {
         if (savedInstanceState == null) handleViewIntent(intent)
         val app = application as GrullaApp
         setContent {
-            GrullaTheme {
+            val themeMode by app.appearance.mode.collectAsStateWithLifecycle()
+            val night = isNightTheme(themeMode)
+            // Status and navigation bar icons follow the app's theme, not only the system's.
+            DisposableEffect(night) {
+                val bars = if (night) SystemBarStyle.dark(Color.TRANSPARENT) else SystemBarStyle.light(Color.TRANSPARENT, Color.TRANSPARENT)
+                enableEdgeToEdge(statusBarStyle = bars, navigationBarStyle = bars)
+                onDispose {}
+            }
+            GrullaTheme(themeMode) {
                 var screen by rememberSaveable { mutableStateOf(Screen.LIBRARY) }
                 var settingsReturn by rememberSaveable { mutableStateOf(Screen.LIBRARY) }
                 if (openedFromIntent) {
@@ -74,6 +87,7 @@ class MainActivity : ComponentActivity() {
                         BackHandler(onBack = toLibrary)
                         ScoreScreen(
                             viewModel,
+                            night = night,
                             onBack = toLibrary,
                             onOpenSettings = {
                                 viewModel.leaveScore()
@@ -84,7 +98,7 @@ class MainActivity : ComponentActivity() {
                     }
                     Screen.SETTINGS -> {
                         BackHandler { screen = settingsReturn }
-                        SettingsScreen(app.audio, onBack = { screen = settingsReturn })
+                        SettingsScreen(app.audio, app.appearance, onBack = { screen = settingsReturn })
                     }
                 }
             }

@@ -6,12 +6,14 @@
  * Kotlin -> JS (window.grulla):
  *   load(url, layout)        fetch MusicXML from url, render it, report onScoreLoaded
  *   setLayout(layout)        {scale, mode: 'page' | 'continuous'}; re-lays out the score
- *   highlight(ids, follow)   mark sounding notes, move the cursor, keep the system visible
+ *   highlight(ids, follow, kind)  mark notes ('play': sounding now, 'listen': to play next),
+ *                            move the cursor, keep the system visible
  *   clearHighlight()
  *   showPage(n)              page mode only
  *   countIn(beat, total)     show the count-in beat (beat 0 hides it)
  *   setLoop(firstId, lastId) shade the measures of the A–B loop (null clears it)
  *   thumbnail(width)         render the top of page 1 to a PNG, reported via onThumbnail
+ *   setTheme(name)           'day' or 'night'
  *
  * JS -> Kotlin (window.GrullaHost, an @JavascriptInterface object):
  *   onReady(verovioVersion)
@@ -48,6 +50,7 @@
     page: 1,
     pageCount: 0,
     highlighted: [],
+    highlightKind: 'play',
     loop: null, // {first, last} measure ids
     lastWidth: 0,
   };
@@ -173,9 +176,14 @@
     if (state.scale + '/' + state.mode !== before) relayout();
   }
 
-  function highlight(ids, follow) {
+  function highlight(ids, follow, kind) {
     state.highlighted = Array.isArray(ids) ? ids : [];
+    state.highlightKind = kind === 'listen' ? 'listen' : 'play';
     paintHighlight(follow !== false, 'smooth');
+  }
+
+  function setTheme(name) {
+    document.documentElement.dataset.theme = name === 'night' ? 'night' : 'day';
   }
 
   function clearHighlight() {
@@ -247,6 +255,7 @@
     countInEl.textContent = String(beat);
     countInEl.title = beat + ' / ' + total;
     countInEl.hidden = false;
+    countInEl.classList.toggle('downbeat', beat === 1);
     countInEl.classList.remove('beat');
     void countInEl.offsetWidth; // Restart the CSS animation.
     countInEl.classList.add('beat');
@@ -255,7 +264,9 @@
   // --- Highlight, cursor, following ----------------------------------------
 
   function paintHighlight(follow, behavior) {
-    for (const el of Array.from(scoreEl.querySelectorAll('.playing'))) el.classList.remove('playing');
+    for (const el of Array.from(scoreEl.querySelectorAll('.playing, .expected'))) el.classList.remove('playing', 'expected');
+    const cssClass = state.highlightKind === 'listen' ? 'expected' : 'playing';
+    cursorEl.classList.toggle('listen', state.highlightKind === 'listen');
     const ids = state.highlighted;
     if (!state.loaded || ids.length === 0) {
       cursorEl.hidden = true;
@@ -273,7 +284,7 @@
     for (const id of ids) {
       const el = document.getElementById(id);
       if (!el) continue;
-      el.classList.add('playing');
+      el.classList.add(cssClass);
       if (!anchor) anchor = el;
     }
     if (!anchor) {
@@ -567,5 +578,6 @@
     countIn: countIn,
     setLoop: setLoop,
     thumbnail: thumbnail,
+    setTheme: setTheme,
   };
 })();

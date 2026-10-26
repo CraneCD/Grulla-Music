@@ -5,6 +5,7 @@ plugins {
     // AGP 9 compiles Kotlin itself (built-in Kotlin), so no separate kotlin-android plugin.
     alias(libs.plugins.android.application)
     alias(libs.plugins.kotlin.compose)
+    alias(libs.plugins.roborazzi)
 }
 
 // Default SoundFont: FluidR3 Mono GM (MIT), as distributed with MuseScore 2.3.2.
@@ -40,8 +41,8 @@ android {
         applicationId = "com.grulla.music"
         minSdk = 26
         targetSdk = 36
-        versionCode = 2
-        versionName = "0.2.0"
+        versionCode = 3
+        versionName = "0.3.0"
     }
 
     buildTypes {
@@ -62,6 +63,13 @@ android {
     sourceSets {
         getByName("main") {
             assets.directories.add(generatedAssets.get().asFile.absolutePath)
+        }
+    }
+
+    testOptions {
+        unitTests {
+            // Screenshot tests (Robolectric + Roborazzi) render Compose with the real resources and assets.
+            isIncludeAndroidResources = true
         }
     }
 
@@ -88,6 +96,26 @@ dependencies {
     implementation(libs.androidx.lifecycle.runtime.compose)
     implementation(libs.androidx.webkit)
     implementation(libs.kotlinx.coroutines.android)
+
+    testImplementation(libs.junit)
+    testImplementation(libs.robolectric)
+    testImplementation(libs.roborazzi)
+    testImplementation(libs.roborazzi.compose)
+    testImplementation(platform(libs.compose.bom))
+    testImplementation(libs.compose.ui.test.junit4)
+    debugImplementation(libs.compose.ui.test.manifest)
+}
+
+// Robolectric runs Android 16 (SDK 36) only on Java 21; the build itself stays on JDK 17.
+tasks.withType<Test>().configureEach {
+    javaLauncher.set(javaToolchains.launcherFor { languageVersion.set(JavaLanguageVersion.of(21)) })
+    // Robolectric reaches into these JDK internals (FileDescriptor, shared memory).
+    jvmArgs("--add-exports=java.base/jdk.internal.access=ALL-UNNAMED", "--add-opens=java.base/java.io=ALL-UNNAMED")
+}
+
+roborazzi {
+    // Reference screenshots live in the repository (see app/screenshots/README.md).
+    outputDir.set(file("screenshots"))
 }
 
 tasks.named("preBuild") { dependsOn(downloadSoundFont) }

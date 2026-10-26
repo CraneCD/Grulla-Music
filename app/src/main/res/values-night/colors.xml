@@ -1,0 +1,5 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- Crane & Ink: Stage (night). -->
+    <color name="window_background">#FF0F1113</color>
+</resources>
