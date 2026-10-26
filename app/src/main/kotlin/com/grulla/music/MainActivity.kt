@@ -3,8 +3,10 @@ package com.grulla.music
 import android.content.Intent
 import android.os.Bundle
 import androidx.activity.ComponentActivity
+import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.activity.viewModels
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.compose.LifecycleEventEffect
@@ -22,7 +24,10 @@ class MainActivity : ComponentActivity() {
             GrullaTheme {
                 // Don't keep playing when the user leaves the app.
                 LifecycleEventEffect(Lifecycle.Event.ON_STOP) { viewModel.pause() }
-                ScoreScreen(viewModel)
+                val openDocument = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
+                    if (uri != null) viewModel.openDocument(uri)
+                }
+                ScoreScreen(viewModel, onOpenFile = { openDocument.launch(viewModel.pickerMimeTypes) })
             }
         }
     }

@@ -116,4 +116,94 @@ class PlaybackMidiBuilderTest {
         val noSignature = threeFour.copy(tracks = listOf(MidiTrack(threeFour.tracks[0].events.drop(1))))
         assertEquals(4 to 4, PlaybackMidiBuilder.timeSignatureAt(noSignature, 0))
     }
+
+    private fun channelEvents(file: MidiFile) = file.allEvents().filterIsInstance<MidiEvent.Channel>().toList()
+
+    @Test
+    fun `an end point keeps only the range and releases held notes`() {
+        val start = timemap.measures[8].timeMs
+        val end = timemap.measures[12].timeMs
+        val prepared = PlaybackMidiBuilder.build(source, PlaybackOptions(startMs = start, endMs = end, tempoFactor = 0.5))
+        val output = MidiReader.read(prepared.bytes)
+        val expected = noteOnTimes(source).count { it >= start - 1.0 && it < end - 1.0 }
+        assertEquals(expected, noteOnTimes(output).size)
+        val events = channelEvents(output)
+        val lastTick = events.maxOf { it.tick }
+        // Every note that starts is released no later than the end.
+        val ons = events.count { it.isNoteOn }
+        val offs = events.count { it.isNoteOff }
+        assertTrue(offs >= ons)
+        assertEquals((end - start) / 0.5, prepared.endPlayerMs, 1.0)
+        assertEquals(prepared.endPlayerMs, TempoMap.of(output).tickToMs(lastTick), 1.0)
+    }
+
+    @Test
+    fun `silenced tracks have no notes`() {
+        val prepared = PlaybackMidiBuilder.build(source, PlaybackOptions(silencedTracks = setOf(2)))
+        val output = MidiReader.read(prepared.bytes)
+        assertTrue(output.tracks[2].events.none { it is MidiEvent.Channel && it.isNoteOn })
+        assertEquals(
+            source.tracks[1].events.count { it is MidiEvent.Channel && it.isNoteOn },
+            output.tracks[1].events.count { it is MidiEvent.Channel && it.isNoteOn },
+        )
+    }
+
+    @Test
+    fun `metronome accents every bar of the score`() {
+        val prepared = PlaybackMidiBuilder.build(
+            source,
+            PlaybackOptions(metronome = Metronome(), measureStartsQuarters = timemap.measures.map { it.qstamp }),
+        )
+        val output = MidiReader.read(prepared.bytes)
+        val map = TempoMap.of(output)
+        val clicks = output.tracks.last().events.filterIsInstance<MidiEvent.Channel>().filter { it.isNoteOn }
+        val accents = clicks.filter { it.data1 == Clicks.HI_WOOD_BLOCK }.map { map.tickToMs(it.tick) }
+        assertEquals(timemap.measures.size, accents.size)
+        timemap.measures.zip(accents).forEach { (measure, accent) -> assertEquals(measure.timeMs, accent, 1.0) }
+        // 4/4 throughout: never more than four clicks per bar, one per quarter note.
+        assertTrue(clicks.zipWithNext().all { (a, b) -> b.tick - a.tick == source.division.toLong() || b.data1 == Clicks.HI_WOOD_BLOCK })
+        assertTrue(clicks.all { it.channel == MidiEvent.PERCUSSION_CHANNEL })
+    }
+
+    private fun synthetic(numerator: Int, denominatorPower: Int, lengthQuarters: Int): MidiFile = MidiFile(
+        format = 0,
+        division = 96,
+        tracks = listOf(
+            MidiTrack(
+                listOf(
+                    MidiEvent.Meta(0, MidiEvent.META_TIME_SIGNATURE, byteArrayOf(numerator.toByte(), denominatorPower.toByte(), 24, 8)),
+                    MidiEvent.Channel(0, 0x90, 60, 90),
+                    MidiEvent.Channel(lengthQuarters * 96L, 0x80, 60, 0),
+                ),
+            ),
+        ),
+    )
+
+    @Test
+    fun `metronome counts a pickup bar as the end of a full bar`() {
+        val file = synthetic(4, 2, 5)
+        val track = PlaybackMidiBuilder.metronomeTrack(file, Metronome(), listOf(0.0, 1.0), lastTick = 5 * 96L)
+        val clicks = track.events.filterIsInstance<MidiEvent.Channel>().filter { it.isNoteOn }
+        // Pickup: one weak beat at 0; then a full bar starting with the accent at quarter 1.
+        assertEquals(listOf(0L, 96L, 192L, 288L, 384L), clicks.map { it.tick })
+        assertEquals(listOf(77, 76, 77, 77, 77), clicks.map { it.data1 })
+    }
+
+    @Test
+    fun `compound meters click on dotted beats`() {
+        val file = synthetic(6, 3, 6) // 6/8, two bars of three quarters
+        val track = PlaybackMidiBuilder.metronomeTrack(file, Metronome(), listOf(0.0, 3.0), lastTick = 6 * 96L)
+        val clicks = track.events.filterIsInstance<MidiEvent.Channel>().filter { it.isNoteOn }
+        assertEquals(listOf(0L, 144L, 288L, 432L), clicks.map { it.tick })
+        assertEquals(listOf(76, 77, 76, 77), clicks.map { it.data1 })
+        assertEquals(2, PlaybackMidiBuilder.build(file, PlaybackOptions(countIn = CountIn())).countInBeats)
+    }
+
+    @Test
+    fun `metronome without measure starts follows the time signature`() {
+        val file = synthetic(3, 2, 6) // 3/4, two bars
+        val track = PlaybackMidiBuilder.metronomeTrack(file, Metronome(), emptyList(), lastTick = 6 * 96L)
+        val accents = track.events.filterIsInstance<MidiEvent.Channel>().filter { it.isNoteOn && it.data1 == 76 }
+        assertEquals(listOf(0L, 288L), accents.map { it.tick })
+    }
 }

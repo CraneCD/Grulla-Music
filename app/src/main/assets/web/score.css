@@ -49,6 +49,45 @@ body.mode-page .page {
   stroke: var(--playing);
 }
 
+#loop-layer {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+}
+
+.loop-band {
+  position: absolute;
+  background: rgba(31, 111, 235, 0.10);
+  border-top: 2px solid rgba(31, 111, 235, 0.55);
+  border-bottom: 2px solid rgba(31, 111, 235, 0.55);
+}
+
+.loop-band.loop-start {
+  border-left: 3px solid rgba(31, 111, 235, 0.85);
+}
+
+.loop-band.loop-end {
+  border-right: 3px solid rgba(31, 111, 235, 0.85);
+}
+
+.loop-band.loop-start::before,
+.loop-band.loop-end::after {
+  position: absolute;
+  top: -18px;
+  font: 700 12px/16px system-ui, sans-serif;
+  color: rgba(31, 111, 235, 0.95);
+}
+
+.loop-band.loop-start::before {
+  content: 'A';
+  left: -2px;
+}
+
+.loop-band.loop-end::after {
+  content: 'B';
+  right: -2px;
+}
+
 #cursor {
   position: absolute;
   pointer-events: none;

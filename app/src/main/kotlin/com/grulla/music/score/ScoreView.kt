@@ -38,6 +38,8 @@ sealed interface WebCommand {
     data class Highlight(val noteIds: List<String>, val follow: Boolean) : WebCommand
     data class ShowPage(val page: Int) : WebCommand
     data class CountIn(val beat: Int, val total: Int) : WebCommand
+    /** Shade measures [firstId]..[lastId]; null clears the loop shading. */
+    data class SetLoop(val firstId: String?, val lastId: String?) : WebCommand
 
     /** Guarded so that calls made before score.js has loaded are dropped instead of throwing. */
     fun toJavaScript(): String = "window.grulla && " + when (this) {
@@ -46,6 +48,7 @@ sealed interface WebCommand {
         is Highlight -> "grulla.highlight(${JSONArray(noteIds)}, $follow)"
         is ShowPage -> "grulla.showPage($page)"
         is CountIn -> "grulla.countIn($beat, $total)"
+        is SetLoop -> "grulla.setLoop(${firstId?.let(JSONObject::quote)}, ${lastId?.let(JSONObject::quote)})"
     }
 
     private fun layoutJson(scale: Int, mode: LayoutMode) =
@@ -57,6 +60,7 @@ interface ScoreWebCallbacks {
     fun onWebReady(verovioVersion: String)
     fun onScoreRendered(payloadJson: String)
     fun onMeasureTapped(measureId: String)
+    fun onMeasureLongPressed(measureId: String)
     fun onZoomChanged(scale: Int)
     fun onPageChanged(page: Int, pageCount: Int)
     fun onWebError(message: String)
@@ -176,6 +180,9 @@ private class ScoreHostBridge(private val callbacks: ScoreWebCallbacks) {
 
     @JavascriptInterface
     fun onMeasureTapped(measureId: String) = onMain { onMeasureTapped(measureId) }
+
+    @JavascriptInterface
+    fun onMeasureLongPressed(measureId: String) = onMain { onMeasureLongPressed(measureId) }
 
     @JavascriptInterface
     fun onZoomChanged(scale: Int) = onMain { onZoomChanged(scale) }

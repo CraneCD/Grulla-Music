@@ -4,12 +4,18 @@ import android.app.Application
 import android.net.Uri
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
+import com.grulla.music.core.playback.MixState
+import com.grulla.music.core.playback.Mixer
+import com.grulla.music.core.playback.MixerChannel
 import com.grulla.music.core.playback.PlaybackController
 import com.grulla.music.core.playback.PlaybackListener
 import com.grulla.music.core.playback.PlaybackState
 import com.grulla.music.core.playback.Segment
+import com.grulla.music.core.playback.TimeRange
 import com.grulla.music.core.score.LoadedScore
+import com.grulla.music.core.score.PartListParser
 import com.grulla.music.core.score.RenderedScore
+import com.grulla.music.core.timemap.Timemap
 import com.grulla.music.playback.MediaPlayerMidiPlayer
 import com.grulla.music.playback.awaitFrameNanos
 import com.grulla.music.score.LayoutMode
@@ -17,6 +23,7 @@ import com.grulla.music.score.ScoreFiles
 import com.grulla.music.score.ScoreOrigin
 import com.grulla.music.score.ScoreWebCallbacks
 import com.grulla.music.score.WebCommand
+import com.grulla.music.ui.TransportActions
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.channels.Channel
@@ -39,9 +46,18 @@ data class ScoreUiState(
     val pageCount: Int = 0,
     /** Scroll / turn pages automatically to keep the playing notes on screen. */
     val follow: Boolean = true,
+    /** Short, non-error message (e.g. how to finish setting a loop). */
+    val notice: String? = null,
+    /** One strip per staff/part, for mute and solo. */
+    val mixer: List<MixerChannel> = emptyList(),
+    val mix: MixState = MixState(),
 )
 
-class ScoreViewModel(application: Application) : AndroidViewModel(application), ScoreWebCallbacks, PlaybackListener {
+class ScoreViewModel(application: Application) :
+    AndroidViewModel(application),
+    ScoreWebCallbacks,
+    PlaybackListener,
+    TransportActions {
     private val files = ScoreFiles(application)
 
     private val mutableUi = MutableStateFlow(ScoreUiState())
@@ -64,6 +80,16 @@ class ScoreViewModel(application: Application) : AndroidViewModel(application), 
     private var scoreVersion = 0
     private var webReady = false
     private var openJob: Job? = null
+
+    /** The rendered score's timemap and MusicXML (for measure lookups and the part list). */
+    private var timemap: Timemap? = null
+    private var musicXml: String? = null
+
+    /** First measure of a loop being set with two long presses. */
+    private var pendingLoopStart: String? = null
+
+    /** Measures shaded for the current loop. */
+    private var loopMeasures: Pair<String, String>? = null
 
     val pickerMimeTypes: Array<String> get() = files.pickerMimeTypes
 
@@ -90,9 +116,15 @@ class ScoreViewModel(application: Application) : AndroidViewModel(application), 
 
     private fun showScore(score: LoadedScore, title: String) {
         playback.clearScore()
+        timemap = null
+        musicXml = score.musicXml
+        pendingLoopStart = null
+        loopMeasures = null
         scoreBytes = score.musicXml.toByteArray(Charsets.UTF_8)
         scoreVersion++
-        mutableUi.update { it.copy(title = title, loading = true, error = null, page = 1, pageCount = 0) }
+        mutableUi.update {
+            it.copy(title = title, loading = true, error = null, page = 1, pageCount = 0, mixer = emptyList(), mix = MixState())
+        }
         if (webReady) sendLoad()
     }
 
@@ -112,20 +144,48 @@ class ScoreViewModel(application: Application) : AndroidViewModel(application), 
 
     override fun onScoreRendered(payloadJson: String) {
         val expectedSource = ScoreOrigin.scoreUrl(scoreVersion)
+        val xml = musicXml
         viewModelScope.launch {
-            val rendered = runCatching { withContext(Dispatchers.Default) { RenderedScore.parse(payloadJson) } }
-                .getOrElse { error ->
-                    mutableUi.update { it.copy(loading = false, error = "Could not prepare playback: ${error.message}") }
-                    return@launch
+            val (rendered, channels) = runCatching {
+                withContext(Dispatchers.Default) {
+                    val rendered = RenderedScore.parse(payloadJson)
+                    // The mixer is optional: a part list we cannot read just means no mixer.
+                    val parts = xml?.let { runCatching { PartListParser.parse(it) }.getOrNull() }.orEmpty()
+                    rendered to Mixer.channels(parts, rendered.midi)
                 }
+            }.getOrElse { error ->
+                mutableUi.update { it.copy(loading = false, error = "Could not prepare playback: ${error.message}") }
+                return@launch
+            }
             if (rendered.source != expectedSource || ScoreOrigin.scoreUrl(scoreVersion) != expectedSource) return@launch
+            timemap = rendered.timemap
             playback.setScore(rendered.timemap, rendered.midi)
-            mutableUi.update { it.copy(loading = false, pageCount = rendered.pageCount) }
+            mutableUi.update { it.copy(loading = false, pageCount = rendered.pageCount, mixer = channels, mix = MixState()) }
         }
     }
 
     override fun onMeasureTapped(measureId: String) {
         playback.seekToMeasure(measureId)
+    }
+
+    /** Two long presses set a loop: the first marks A, the second B (in either order). */
+    override fun onMeasureLongPressed(measureId: String) {
+        val map = timemap ?: return
+        val first = pendingLoopStart
+        if (first == null) {
+            pendingLoopStart = measureId
+            commandChannel.trySend(WebCommand.SetLoop(measureId, measureId))
+            mutableUi.update { it.copy(notice = "Loop start set. Long-press the last measure of the loop.") }
+            return
+        }
+        pendingLoopStart = null
+        val (start, end) = map.rangeOfMeasures(first, measureId) ?: return
+        val inOrder = (map.measureStartMs(first) ?: 0.0) <= (map.measureStartMs(measureId) ?: 0.0)
+        val measures = if (inOrder) first to measureId else measureId to first
+        loopMeasures = measures
+        playback.setLoop(TimeRange(start, end))
+        commandChannel.trySend(WebCommand.SetLoop(measures.first, measures.second))
+        mutableUi.update { it.copy(notice = null) }
     }
 
     override fun onZoomChanged(scale: Int) {
@@ -156,17 +216,45 @@ class ScoreViewModel(application: Application) : AndroidViewModel(application), 
 
     // --- User actions --------------------------------------------------------------
 
-    fun togglePlay() = playback.togglePlay()
+    override fun togglePlay() = playback.togglePlay()
 
     fun pause() = playback.pause()
 
-    fun stop() = playback.stop()
+    override fun stop() = playback.stop()
 
-    fun setTempoPercent(percent: Int) = playback.setTempoPercent(percent)
+    override fun setTempoPercent(percent: Int) = playback.setTempoPercent(percent)
 
-    fun setCountIn(enabled: Boolean) = playback.setCountInEnabled(enabled)
+    override fun setCountIn(enabled: Boolean) = playback.setCountInEnabled(enabled)
 
-    fun setFollow(enabled: Boolean) = mutableUi.update { it.copy(follow = enabled) }
+    override fun setMetronome(enabled: Boolean) = playback.setMetronomeEnabled(enabled)
+
+    override fun setLoopEnabled(enabled: Boolean) {
+        val measures = loopMeasures ?: return
+        playback.setLoopEnabled(enabled)
+        commandChannel.trySend(if (enabled) WebCommand.SetLoop(measures.first, measures.second) else WebCommand.SetLoop(null, null))
+    }
+
+    override fun clearLoop() {
+        pendingLoopStart = null
+        loopMeasures = null
+        playback.setLoop(null)
+        commandChannel.trySend(WebCommand.SetLoop(null, null))
+        mutableUi.update { it.copy(notice = null) }
+    }
+
+    fun toggleMute(track: Int) = updateMix { it.toggleMute(track) }
+
+    fun toggleSolo(track: Int) = updateMix { it.toggleSolo(track) }
+
+    private fun updateMix(change: (MixState) -> MixState) {
+        mutableUi.update { it.copy(mix = change(it.mix)) }
+        val state = mutableUi.value
+        playback.setSilencedTracks(state.mix.silencedTracks(state.mixer))
+    }
+
+    fun dismissNotice() = mutableUi.update { it.copy(notice = null) }
+
+    override fun setFollow(enabled: Boolean) = mutableUi.update { it.copy(follow = enabled) }
 
     fun zoomIn() = setScale(mutableUi.value.scale + SCALE_STEP)
 
@@ -185,7 +273,7 @@ class ScoreViewModel(application: Application) : AndroidViewModel(application), 
         sendLayout()
     }
 
-    fun showPage(page: Int) {
+    override fun showPage(page: Int) {
         commandChannel.trySend(WebCommand.ShowPage(page))
     }
 

@@ -54,6 +54,16 @@ class TimemapTest {
     }
 
     @Test
+    fun `measure ranges cover whole measures in either order`() {
+        val timemap = Timemap.parse(sample)
+        assertEquals(1000.0, timemap.measureEndMs("m1"))
+        assertEquals(3000.0, timemap.measureEndMs("m2"))
+        assertEquals(0.0 to 3000.0, timemap.rangeOfMeasures("m2", "m1"))
+        assertEquals(1000.0 to 3000.0, timemap.rangeOfMeasures("m2", "m2"))
+        assertNull(timemap.rangeOfMeasures("m1", "nope"))
+    }
+
+    @Test
     fun `reports the tempo in effect`() {
         val timemap = Timemap.parse(sample)
         assertEquals(120.0, timemap.tempoAt(0.0))

@@ -45,6 +45,26 @@ class Timemap(entries: List<TimemapEntry>) {
 
     fun measureStartMs(measureId: String): Double? = measureById[measureId]?.timeMs
 
+    /** End of the first pass through [measureId]: where the following measure starts. */
+    fun measureEndMs(measureId: String): Double? {
+        val first = measureById[measureId] ?: return null
+        val index = measures.indexOf(first)
+        return measures.getOrNull(index + 1)?.timeMs ?: durationMs
+    }
+
+    /**
+     * The time range covering measures [firstId] to [lastId] inclusive (in either
+     * order), e.g. for an A–B loop. Null if a measure is unknown.
+     */
+    fun rangeOfMeasures(firstId: String, lastId: String): Pair<Double, Double>? {
+        val a = measureStartMs(firstId) ?: return null
+        val b = measureStartMs(lastId) ?: return null
+        val (from, to) = if (a <= b) firstId to lastId else lastId to firstId
+        val start = measureStartMs(from)!!
+        val end = measureEndMs(to)!!
+        return if (end > start) start to end else null
+    }
+
     /** The measure that contains [timeMs], or the first measure if [timeMs] is before it. */
     fun measureAt(timeMs: Double): MeasureStart? {
         if (measures.isEmpty()) return null

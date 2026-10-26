@@ -10,11 +10,14 @@
  *   clearHighlight()
  *   showPage(n)              page mode only
  *   countIn(beat, total)     show the count-in beat (beat 0 hides it)
+ *   setLoop(firstId, lastId) shade the measures of the A–B loop (null clears it)
  *
  * JS -> Kotlin (window.GrullaHost, an @JavascriptInterface object):
  *   onReady(verovioVersion)
- *   onScoreLoaded(json)      {"pageCount": n, "timemap": [...], "midi": "<base64>", "source": url}
+ *   onScoreLoaded(json)      {"pageCount": n, "timemap": [...], "midi": "<base64>", "source": url,
+ *                             "pitches": {noteId: midiPitch}}
  *   onMeasureTapped(measureId)
+ *   onMeasureLongPressed(measureId)
  *   onZoomChanged(scale)
  *   onPageChanged(page, pageCount)
  *   onError(message)
@@ -31,6 +34,9 @@
   const scoreEl = document.getElementById('score');
   const cursorEl = document.getElementById('cursor');
   const countInEl = createCountInBadge();
+  const loopLayer = document.createElement('div');
+  loopLayer.id = 'loop-layer';
+  wrap.insertBefore(loopLayer, cursorEl); // Above the score, below the cursor.
 
   const state = {
     tk: null,
@@ -40,6 +46,7 @@
     page: 1,
     pageCount: 0,
     highlighted: [],
+    loop: null, // {first, last} measure ids
     lastWidth: 0,
   };
 
@@ -101,6 +108,7 @@
     scoreEl.innerHTML = html;
     state.lastWidth = document.documentElement.clientWidth;
     host.onPageChanged(state.page, state.pageCount);
+    paintLoop();
     paintHighlight(false);
   }
 
@@ -141,11 +149,15 @@
       state.loaded = true;
       state.page = 1;
       state.highlighted = [];
+      state.loop = null;
       const timemap = tk.renderToTimemap({ includeMeasures: true, includeRests: true });
       const midi = tk.renderToMIDI();
+      const pitches = notePitches(tk, timemap);
       render();
       window.scrollTo(0, 0);
-      host.onScoreLoaded(JSON.stringify({ pageCount: state.pageCount, timemap: timemap, midi: midi, source: url }));
+      host.onScoreLoaded(JSON.stringify({
+        pageCount: state.pageCount, timemap: timemap, midi: midi, source: url, pitches: pitches,
+      }));
     } catch (e) {
       state.loaded = false;
       scoreEl.innerHTML = '';
@@ -175,6 +187,24 @@
     state.page = target;
     render();
     window.scrollTo(0, 0);
+  }
+
+  function setLoop(firstId, lastId) {
+    state.loop = firstId ? { first: firstId, last: lastId || firstId } : null;
+    paintLoop();
+  }
+
+  /** MIDI pitch of every note in the timemap (for "follow me" listening). */
+  function notePitches(tk, timemap) {
+    const pitches = {};
+    for (const entry of timemap) {
+      for (const id of entry.on || []) {
+        if (id in pitches) continue;
+        const values = tk.getMIDIValuesForElement(id);
+        if (values && typeof values.pitch === 'number') pitches[id] = values.pitch;
+      }
+    }
+    return pitches;
   }
 
   function countIn(beat, total) {
@@ -224,11 +254,29 @@
 
   let lastCursorSystem = null;
 
+  /**
+   * Vertical extent of a system's staves. The <g class="system"> box also covers
+   * titles and tempo marks above the first system, so union the staves instead.
+   */
+  function staffBox(system) {
+    const staves = system.querySelectorAll('g.staff');
+    if (staves.length === 0) return system.getBoundingClientRect();
+    let top = Infinity;
+    let bottom = -Infinity;
+    for (const staff of Array.from(staves)) {
+      const r = staff.getBoundingClientRect();
+      if (r.height === 0) continue;
+      top = Math.min(top, r.top);
+      bottom = Math.max(bottom, r.bottom);
+    }
+    return top < bottom ? { top: top, bottom: bottom, height: bottom - top } : system.getBoundingClientRect();
+  }
+
   function placeCursor(noteEl) {
     const system = noteEl.closest('.system') || noteEl;
     const origin = wrap.getBoundingClientRect();
     const note = noteEl.getBoundingClientRect();
-    const sys = system.getBoundingClientRect();
+    const sys = staffBox(system);
     const pad = 4;
     // Glide along a system, but jump (no transition) to a new system or page.
     const jump = cursorEl.hidden || system !== lastCursorSystem;
@@ -250,6 +298,45 @@
     const margin = Math.min(48, viewport * 0.08);
     if (rect.top >= margin && rect.bottom <= viewport - margin) return;
     window.scrollBy({ top: rect.top - Math.max(margin, viewport * 0.12), behavior: behavior });
+  }
+
+  // --- A–B loop shading ---------------------------------------------------------
+  // One band per system, spanning the loop's measures on it (in notation order).
+
+  function paintLoop() {
+    loopLayer.innerHTML = '';
+    if (!state.loaded || !state.loop) return;
+    const measures = Array.from(scoreEl.querySelectorAll('g.measure'));
+    let a = measures.findIndex((m) => m.id === state.loop.first);
+    let b = measures.findIndex((m) => m.id === state.loop.last);
+    if (a < 0 && b < 0) return; // Not on this page.
+    if (a < 0) a = 0;
+    if (b < 0) b = measures.length - 1;
+    if (a > b) { const t = a; a = b; b = t; }
+    const origin = wrap.getBoundingClientRect();
+    const bands = new Map();
+    for (let i = a; i <= b; i++) {
+      const measure = measures[i];
+      const system = measure.closest('.system') || measure;
+      const r = measure.getBoundingClientRect();
+      const band = bands.get(system) || { left: Infinity, right: -Infinity, top: Infinity, bottom: -Infinity };
+      band.left = Math.min(band.left, r.left);
+      band.right = Math.max(band.right, r.right);
+      const s = staffBox(system);
+      band.top = Math.min(band.top, s.top);
+      band.bottom = Math.max(band.bottom, s.bottom);
+      bands.set(system, band);
+    }
+    const list = Array.from(bands.values());
+    list.forEach(function (band, index) {
+      const el = document.createElement('div');
+      el.className = 'loop-band' + (index === 0 ? ' loop-start' : '') + (index === list.length - 1 ? ' loop-end' : '');
+      el.style.left = (band.left - origin.left) + 'px';
+      el.style.top = (band.top - origin.top - 6) + 'px';
+      el.style.width = (band.right - band.left) + 'px';
+      el.style.height = (band.bottom - band.top + 12) + 'px';
+      loopLayer.appendChild(el);
+    });
   }
 
   // --- Seek by tapping a measure --------------------------------------------
@@ -282,11 +369,63 @@
 
   let suppressClickUntil = 0;
 
+  function measureFor(target, x, y) {
+    const direct = target && target.closest ? target.closest('g.measure') : null;
+    return direct || measureAt(x, y);
+  }
+
   scoreEl.addEventListener('click', function (event) {
     if (!state.loaded || Date.now() < suppressClickUntil) return;
-    const direct = event.target.closest ? event.target.closest('g.measure') : null;
-    const measure = direct || measureAt(event.clientX, event.clientY);
+    const measure = measureFor(event.target, event.clientX, event.clientY);
     if (measure) host.onMeasureTapped(measure.id);
+  });
+
+  // --- Long press on a measure: set the loop's A / B ------------------------------
+
+  const LONG_PRESS_MS = 550;
+  let press = null;
+
+  function longPress(target, x, y) {
+    const measure = measureFor(target, x, y);
+    if (!measure) return;
+    suppressClickUntil = Date.now() + 700;
+    if (navigator.vibrate) navigator.vibrate(15);
+    host.onMeasureLongPressed(measure.id);
+  }
+
+  scoreEl.addEventListener('touchstart', function (event) {
+    if (event.touches.length !== 1 || !state.loaded) {
+      cancelPress();
+      return;
+    }
+    const t = event.touches[0];
+    press = { x: t.clientX, y: t.clientY, target: event.target };
+    press.timer = setTimeout(function () {
+      const p = press;
+      press = null;
+      if (p) longPress(p.target, p.x, p.y);
+    }, LONG_PRESS_MS);
+  }, { passive: true });
+
+  scoreEl.addEventListener('touchmove', function (event) {
+    if (!press) return;
+    const t = event.touches[0];
+    if (Math.hypot(t.clientX - press.x, t.clientY - press.y) > 12) cancelPress();
+  }, { passive: true });
+
+  scoreEl.addEventListener('touchend', cancelPress);
+  scoreEl.addEventListener('touchcancel', cancelPress);
+
+  function cancelPress() {
+    if (press) clearTimeout(press.timer);
+    press = null;
+  }
+
+  // Mouse right-click (desktop browsers, emulators) does the same as a long press.
+  scoreEl.addEventListener('contextmenu', function (event) {
+    event.preventDefault();
+    if (!state.loaded || event.pointerType === 'touch' || Date.now() < suppressClickUntil) return;
+    longPress(event.target, event.clientX, event.clientY);
   });
 
   // --- Pinch zoom -------------------------------------------------------------
@@ -301,6 +440,7 @@
 
   document.addEventListener('touchstart', function (event) {
     if (event.touches.length !== 2 || !state.loaded) return;
+    cancelPress();
     const origin = wrap.getBoundingClientRect();
     const cx = (event.touches[0].clientX + event.touches[1].clientX) / 2;
     const cy = (event.touches[0].clientY + event.touches[1].clientY) / 2;
@@ -378,6 +518,7 @@
       onReady: record('onReady'),
       onScoreLoaded: record('onScoreLoaded'),
       onMeasureTapped: record('onMeasureTapped'),
+      onMeasureLongPressed: record('onMeasureLongPressed'),
       onZoomChanged: record('onZoomChanged'),
       onPageChanged: record('onPageChanged'),
       onError: record('onError'),
@@ -391,5 +532,6 @@
     clearHighlight: clearHighlight,
     showPage: showPage,
     countIn: countIn,
+    setLoop: setLoop,
   };
 })();

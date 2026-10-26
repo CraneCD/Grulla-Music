@@ -97,6 +97,24 @@ async function shot(page, name) {
     check(tapped.args[0] === measureIds[2], 'tapping measure 3 reports its id');
     check(box !== null, 'measure has a box');
 
+    // Every note in the timemap has a MIDI pitch (for listening mode).
+    const noteIds = new Set(result.timemap.flatMap((e) => e.on || []));
+    check(noteIds.size > 0 && [...noteIds].every((id) => typeof result.pitches[id] === 'number'), 'pitches for all ' + noteIds.size + ' notes');
+    check(result.pitches[result.timemap[0].on[0]] === 76 || result.pitches[result.timemap[0].on[0]] === 48, 'first chord pitch is E5 or C3');
+
+    // Long press (right click with a mouse) on measure 4 reports it; the loop shades measures 2–4.
+    mark = await eventCount(page);
+    const box4 = await page.locator('#' + measureIds[3]).boundingBox();
+    await page.mouse.click(box4.x + box4.width / 2, box4.y + box4.height * 0.9, { button: 'right' });
+    const pressed = await waitForEvent(page, 'onMeasureLongPressed', mark);
+    check(pressed.args[0] === measureIds[3], 'long press on measure 4 reports its id');
+    await page.evaluate(([a, b]) => window.grulla.setLoop(a, b), [measureIds[1], measureIds[3]]);
+    const bands = await page.locator('.loop-band').count();
+    check(bands >= 1, 'loop shading drawn (' + bands + ' band(s))');
+    await shot(page, '2b-loop');
+    await page.evaluate(() => window.grulla.setLoop(null));
+    check(await page.locator('.loop-band').count() === 0, 'loop cleared');
+
     // Pinch out with two fingers through CDP: expect a re-layout at a larger scale.
     const cdp = await context.newCDPSession(page);
     const touch = (type, spread) => cdp.send('Input.dispatchTouchEvent', {

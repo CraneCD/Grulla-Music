@@ -23,16 +23,22 @@ class PlaybackControllerTest {
     private val index = ActiveNoteIndex(timemap)
 
     /** Plays in virtual time: its position advances with the test scheduler's clock. */
-    private class FakePlayer(private val now: () -> Long) : MidiPlayer {
+    private class FakePlayer(private val now: () -> Long, override val supportsLooping: Boolean = false) : MidiPlayer {
         var loads = 0
+        var loop: Pair<Double, Double>? = null
         var loaded: ByteArray? = null
         private var startedAt: Long? = null
         private var offset = 0L
         override var onCompletion: (() -> Unit)? = null
 
+        override fun setLoop(startMs: Double, endMs: Double) {
+            loop = startMs to endMs
+        }
+
         override suspend fun load(midi: ByteArray) {
             delay(LOAD_MS)
             loads++
+            loop = null
             loaded = midi
             offset = 0
             startedAt = null
@@ -75,8 +81,8 @@ class PlaybackControllerTest {
 
     private class Harness(val player: FakePlayer, val listener: RecordingListener, val controller: PlaybackController)
 
-    private fun TestScope.harness(): Harness {
-        val player = FakePlayer { testScheduler.currentTime }
+    private fun TestScope.harness(looping: Boolean = false): Harness {
+        val player = FakePlayer({ testScheduler.currentTime }, looping)
         val listener = RecordingListener()
         val controller = PlaybackController(
             player = player,
@@ -243,6 +249,82 @@ class PlaybackControllerTest {
         h.controller.setScore(timemap, midi)
         assertEquals(Transport.STOPPED, h.controller.state.value.transport)
         assertTrue(h.controller.state.value.hasScore)
+    }
+
+    private fun loopOf(first: Int, last: Int): TimeRange {
+        val (start, end) = timemap.rangeOfMeasures(timemap.measures[first].id, timemap.measures[last].id)!!
+        return TimeRange(start, end)
+    }
+
+    @Test
+    fun `setting a loop while stopped moves to its start`() = runTest {
+        val h = harness()
+        val loop = loopOf(4, 6)
+        h.controller.setLoop(loop)
+        assertTrue(h.controller.state.value.loopEnabled)
+        assertEquals(loop.startMs, h.controller.state.value.positionMs)
+        h.controller.stop()
+        assertEquals(loop.startMs, h.controller.state.value.positionMs, "stop rewinds to the loop start")
+    }
+
+    @Test
+    fun `a player without seamless looping restarts at A when it reaches B`() = runTest {
+        val h = harness()
+        val loop = loopOf(4, 6)
+        h.controller.setLoop(loop)
+        h.controller.setCountInEnabled(true)
+        h.controller.play()
+        advanceTimeBy(LOAD_MS + 4000)
+        assertEquals(1, h.player.loads)
+        h.player.onCompletion?.invoke() // the prepared file ends at B
+        advanceTimeBy(LOAD_MS + 500)
+        assertEquals(2, h.player.loads)
+        assertEquals(Transport.PLAYING, h.controller.state.value.transport, "no count-in on repeats")
+        assertNear(loop.startMs + 500, h.controller.state.value.positionMs)
+    }
+
+    @Test
+    fun `a looping player gets the loop region in player time`() = runTest {
+        val h = harness(looping = true)
+        val loop = loopOf(10, 11)
+        h.controller.setTempoPercent(50)
+        h.controller.setLoop(loop)
+        h.controller.play()
+        advanceTimeBy(LOAD_MS + 1)
+        val (start, end) = h.player.loop!!
+        assertEquals(0.0, start, 1e-6)
+        // Timemap times are whole milliseconds; at half speed the rounding error doubles.
+        assertEquals((loop.endMs - loop.startMs) / 0.5, end, 3.0)
+    }
+
+    @Test
+    fun `playing from outside the loop starts at A`() = runTest {
+        val h = harness()
+        h.controller.seekTo(timemap.measures[20].timeMs)
+        h.controller.setLoop(loopOf(2, 3))
+        h.controller.play()
+        advanceTimeBy(LOAD_MS + 300)
+        assertNear(loopOf(2, 3).startMs + 300, h.controller.state.value.positionMs)
+        h.controller.setLoopEnabled(false)
+        advanceTimeBy(LOAD_MS + 1)
+        assertEquals(2, h.player.loads, "disabling the loop while playing re-prepares")
+    }
+
+    @Test
+    fun `metronome and mixer changes apply immediately while playing`() = runTest {
+        val h = harness()
+        h.controller.play()
+        advanceTimeBy(LOAD_MS + 1000)
+        h.controller.setMetronomeEnabled(true)
+        advanceTimeBy(LOAD_MS + 1)
+        assertEquals(2, h.player.loads)
+        h.controller.setSilencedTracks(setOf(1))
+        advanceTimeBy(LOAD_MS + 1)
+        assertEquals(3, h.player.loads)
+        h.controller.setSilencedTracks(setOf(1))
+        advanceTimeBy(LOAD_MS + 1)
+        assertEquals(3, h.player.loads, "unchanged settings do not reload")
+        assertNear(1000.0 + 2 * LOAD_MS, h.controller.state.value.positionMs, 150.0)
     }
 
     private companion object {

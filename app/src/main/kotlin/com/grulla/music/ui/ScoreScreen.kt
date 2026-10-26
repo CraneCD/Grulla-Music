@@ -1,7 +1,7 @@
 package com.grulla.music.ui
 
-import androidx.activity.compose.rememberLauncherForActivityResult
-import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.foundation.clickable
+import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -13,6 +13,7 @@ import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.FilledIconButton
@@ -20,6 +21,7 @@ import androidx.compose.material3.FilterChip
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Slider
 import androidx.compose.material3.SnackbarHost
@@ -49,20 +51,36 @@ import com.grulla.music.score.LayoutMode
 import com.grulla.music.score.ScoreView
 import kotlin.math.roundToInt
 
+/** What the transport bar can do; implemented by [ScoreViewModel]. */
+interface TransportActions {
+    fun togglePlay()
+    fun stop()
+    fun setTempoPercent(percent: Int)
+    fun setCountIn(enabled: Boolean)
+    fun setMetronome(enabled: Boolean)
+    fun setLoopEnabled(enabled: Boolean)
+    fun clearLoop()
+    fun setFollow(enabled: Boolean)
+    fun showPage(page: Int)
+}
+
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun ScoreScreen(viewModel: ScoreViewModel) {
+fun ScoreScreen(viewModel: ScoreViewModel, onOpenFile: () -> Unit) {
     val ui by viewModel.ui.collectAsStateWithLifecycle()
     val playback by viewModel.playbackState.collectAsStateWithLifecycle()
     val snackbar = remember { SnackbarHostState() }
-    val openDocument = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
-        if (uri != null) viewModel.openDocument(uri)
-    }
+    var showMixer by remember { mutableStateOf(false) }
 
     LaunchedEffect(ui.error) {
         val message = ui.error ?: return@LaunchedEffect
         snackbar.showSnackbar(message)
         viewModel.dismissError()
+    }
+    LaunchedEffect(ui.notice) {
+        val message = ui.notice ?: return@LaunchedEffect
+        snackbar.showSnackbar(message)
+        viewModel.dismissNotice()
     }
 
     Scaffold(
@@ -70,8 +88,13 @@ fun ScoreScreen(viewModel: ScoreViewModel) {
             TopAppBar(
                 title = { Text(ui.title, maxLines = 1, overflow = TextOverflow.Ellipsis) },
                 actions = {
-                    IconButton(onClick = { openDocument.launch(viewModel.pickerMimeTypes) }) {
+                    IconButton(onClick = onOpenFile) {
                         Icon(AppIcons.FolderOpen, contentDescription = "Open score")
+                    }
+                    if (ui.mixer.size > 1) {
+                        IconButton(onClick = { showMixer = true }) {
+                            Icon(AppIcons.Tune, contentDescription = "Parts")
+                        }
                     }
                     IconButton(onClick = viewModel::toggleLayoutMode) {
                         if (ui.layoutMode == LayoutMode.PAGE) {
@@ -83,25 +106,13 @@ fun ScoreScreen(viewModel: ScoreViewModel) {
                     IconButton(onClick = viewModel::zoomOut) {
                         Icon(AppIcons.ZoomOut, contentDescription = "Zoom out")
                     }
-                    Text("${ui.scale}%", style = MaterialTheme.typography.labelMedium)
                     IconButton(onClick = viewModel::zoomIn) {
                         Icon(AppIcons.ZoomIn, contentDescription = "Zoom in")
                     }
                 },
             )
         },
-        bottomBar = {
-            TransportBar(
-                ui = ui,
-                playback = playback,
-                onTogglePlay = viewModel::togglePlay,
-                onStop = viewModel::stop,
-                onTempo = viewModel::setTempoPercent,
-                onCountIn = viewModel::setCountIn,
-                onFollow = viewModel::setFollow,
-                onPage = viewModel::showPage,
-            )
-        },
+        bottomBar = { TransportBar(ui, playback, viewModel) },
         snackbarHost = { SnackbarHost(snackbar) },
     ) { padding ->
         Box(
@@ -120,19 +131,49 @@ fun ScoreScreen(viewModel: ScoreViewModel) {
             }
         }
     }
+
+    if (showMixer) {
+        ModalBottomSheet(onDismissRequest = { showMixer = false }) {
+            MixerSheet(ui, onMute = viewModel::toggleMute, onSolo = viewModel::toggleSolo)
+        }
+    }
 }
 
 @Composable
-private fun TransportBar(
-    ui: ScoreUiState,
-    playback: PlaybackState,
-    onTogglePlay: () -> Unit,
-    onStop: () -> Unit,
-    onTempo: (Int) -> Unit,
-    onCountIn: (Boolean) -> Unit,
-    onFollow: (Boolean) -> Unit,
-    onPage: (Int) -> Unit,
-) {
+private fun MixerSheet(ui: ScoreUiState, onMute: (Int) -> Unit, onSolo: (Int) -> Unit) {
+    Column(
+        Modifier
+            .fillMaxWidth()
+            .navigationBarsPadding()
+            .padding(horizontal = 20.dp, vertical = 8.dp),
+        verticalArrangement = Arrangement.spacedBy(4.dp),
+    ) {
+        Text("Parts", style = MaterialTheme.typography.titleMedium)
+        Text(
+            "Mute a part, or solo it to hear it alone. Practise one hand by muting the other staff.",
+            style = MaterialTheme.typography.bodySmall,
+        )
+        for (channel in ui.mixer) {
+            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                Text(channel.label, Modifier.weight(1f), maxLines = 2, overflow = TextOverflow.Ellipsis)
+                FilterChip(
+                    selected = channel.trackIndex in ui.mix.muted,
+                    onClick = { onMute(channel.trackIndex) },
+                    label = { Text("Mute") },
+                )
+                FilterChip(
+                    selected = channel.trackIndex in ui.mix.soloed,
+                    onClick = { onSolo(channel.trackIndex) },
+                    label = { Text("Solo") },
+                )
+            }
+        }
+        Spacer(Modifier.size(12.dp))
+    }
+}
+
+@Composable
+private fun TransportBar(ui: ScoreUiState, playback: PlaybackState, actions: TransportActions) {
     Surface(tonalElevation = 3.dp) {
         Column(
             Modifier
@@ -141,10 +182,10 @@ private fun TransportBar(
                 .padding(horizontal = 12.dp, vertical = 6.dp),
         ) {
             Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                IconButton(onClick = onStop, enabled = playback.hasScore) {
+                IconButton(onClick = actions::stop, enabled = playback.hasScore) {
                     Icon(AppIcons.Stop, contentDescription = "Stop")
                 }
-                FilledIconButton(onClick = onTogglePlay, enabled = playback.hasScore, modifier = Modifier.size(52.dp)) {
+                FilledIconButton(onClick = actions::togglePlay, enabled = playback.hasScore, modifier = Modifier.size(52.dp)) {
                     if (playback.isRunning) {
                         Icon(AppIcons.Pause, contentDescription = "Pause")
                     } else {
@@ -156,32 +197,60 @@ private fun TransportBar(
                         "${formatTime(playback.positionMs)} / ${formatTime(playback.durationMs)}",
                         style = MaterialTheme.typography.titleSmall.copy(fontFeatureSettings = "tnum"),
                     )
-                    Text(statusText(playback.transport), style = MaterialTheme.typography.labelSmall)
+                    Text(statusText(playback), style = MaterialTheme.typography.labelSmall)
                 }
                 Spacer(Modifier.weight(1f))
                 if (ui.layoutMode == LayoutMode.PAGE && ui.pageCount > 1) {
-                    IconButton(onClick = { onPage(ui.page - 1) }, enabled = ui.page > 1) {
+                    IconButton(onClick = { actions.showPage(ui.page - 1) }, enabled = ui.page > 1) {
                         Icon(AppIcons.ChevronLeft, contentDescription = "Previous page")
                     }
                     Text("${ui.page}/${ui.pageCount}", style = MaterialTheme.typography.labelMedium)
-                    IconButton(onClick = { onPage(ui.page + 1) }, enabled = ui.page < ui.pageCount) {
+                    IconButton(onClick = { actions.showPage(ui.page + 1) }, enabled = ui.page < ui.pageCount) {
                         Icon(AppIcons.ChevronRight, contentDescription = "Next page")
                     }
                 }
             }
-            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            Row(
+                Modifier.horizontalScroll(rememberScrollState()),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+            ) {
                 FilterChip(
                     selected = playback.countInEnabled,
-                    onClick = { onCountIn(!playback.countInEnabled) },
+                    onClick = { actions.setCountIn(!playback.countInEnabled) },
                     label = { Text("Count-in") },
                 )
                 FilterChip(
+                    selected = playback.metronomeEnabled,
+                    onClick = { actions.setMetronome(!playback.metronomeEnabled) },
+                    label = { Text("Metronome") },
+                )
+                FilterChip(
+                    selected = playback.loopEnabled,
+                    enabled = playback.loop != null,
+                    onClick = { actions.setLoopEnabled(!playback.loopEnabled) },
+                    label = { Text(if (playback.loop == null) "Loop: long-press 2 bars" else "Loop A–B") },
+                    trailingIcon = if (playback.loop != null) {
+                        {
+                            Icon(
+                                AppIcons.Close,
+                                contentDescription = "Clear loop",
+                                modifier = Modifier
+                                    .size(18.dp)
+                                    .clickable(onClickLabel = "Clear loop", onClick = actions::clearLoop),
+                            )
+                        }
+                    } else {
+                        null
+                    },
+                )
+                FilterChip(
                     selected = ui.follow,
-                    onClick = { onFollow(!ui.follow) },
+                    onClick = { actions.setFollow(!ui.follow) },
                     label = { Text("Follow") },
                 )
             }
-            TempoSlider(playback.tempoPercent, onTempo)
+            TempoSlider(playback.tempoPercent, actions::setTempoPercent)
         }
     }
 }
@@ -213,15 +282,15 @@ private fun TempoSlider(tempoPercent: Int, onTempo: (Int) -> Unit) {
     }
 }
 
-private fun statusText(transport: Transport) = when (transport) {
+private fun statusText(playback: PlaybackState) = when (playback.transport) {
     Transport.STOPPED -> "Stopped"
     Transport.PREPARING -> "Preparing…"
     Transport.COUNTING_IN -> "Count-in"
-    Transport.PLAYING -> "Playing"
+    Transport.PLAYING -> if (playback.activeLoop != null) "Looping" else "Playing"
     Transport.PAUSED -> "Paused"
 }
 
-private fun formatTime(ms: Double): String {
+internal fun formatTime(ms: Double): String {
     val totalSeconds = (ms / 1000).toInt().coerceAtLeast(0)
     return "%d:%02d".format(totalSeconds / 60, totalSeconds % 60)
 }

@@ -1,8 +1,10 @@
 package com.grulla.music.core.playback
 
 import com.grulla.music.core.midi.CountIn
+import com.grulla.music.core.midi.Metronome
 import com.grulla.music.core.midi.MidiFile
 import com.grulla.music.core.midi.PlaybackMidiBuilder
+import com.grulla.music.core.midi.PlaybackOptions
 import com.grulla.music.core.midi.PreparedMidi
 import com.grulla.music.core.timemap.Timemap
 import kotlin.coroutines.CoroutineContext
@@ -19,6 +21,15 @@ import kotlinx.coroutines.withContext
 
 enum class Transport { STOPPED, PREPARING, COUNTING_IN, PLAYING, PAUSED }
 
+/** A range of score time (ms at the notated tempo), end exclusive. */
+data class TimeRange(val startMs: Double, val endMs: Double) {
+    init {
+        require(endMs > startMs) { "Empty range" }
+    }
+
+    operator fun contains(timeMs: Double) = timeMs >= startMs && timeMs < endMs
+}
+
 data class PlaybackState(
     val transport: Transport = Transport.STOPPED,
     /** Current score position in ms at the notated tempo (the timemap's unit). */
@@ -26,10 +37,16 @@ data class PlaybackState(
     val durationMs: Double = 0.0,
     val tempoPercent: Int = TempoRange.DEFAULT_PERCENT,
     val countInEnabled: Boolean = false,
+    val metronomeEnabled: Boolean = false,
+    /** The A–B range, if one is set. */
+    val loop: TimeRange? = null,
+    val loopEnabled: Boolean = false,
     val hasScore: Boolean = false,
 ) {
     val isRunning: Boolean
         get() = transport == Transport.PREPARING || transport == Transport.COUNTING_IN || transport == Transport.PLAYING
+
+    val activeLoop: TimeRange? get() = loop?.takeIf { loopEnabled }
 }
 
 /** Receives the guidance the score view should show. Called on the controller's scope. */
@@ -45,9 +62,9 @@ interface PlaybackListener {
 
 /**
  * The single playback clock. It prepares a MIDI file for the requested start
- * point, tempo and count-in (see [PlaybackMidiBuilder]), plays it with a
- * [MidiPlayer], and on every display frame converts the player position to score
- * time to drive the highlighting through [PlaybackListener].
+ * point, tempo, loop, mix, metronome and count-in (see [PlaybackMidiBuilder]),
+ * plays it with a [MidiPlayer], and on every display frame converts the player
+ * position to score time to drive the highlighting through [PlaybackListener].
  *
  * Not thread-safe: call it from one thread (the main thread on Android), and give
  * it a [scope] that runs there.
@@ -61,6 +78,7 @@ class PlaybackController(
     /** Where MIDI files are built; CPU work that should stay off the main thread. */
     private val workContext: CoroutineContext = Dispatchers.Default,
     private val countIn: CountIn = CountIn(),
+    private val metronome: Metronome = Metronome(),
 ) {
     private val mutableState = MutableStateFlow(PlaybackState())
     val state: StateFlow<PlaybackState> = mutableState.asStateFlow()
@@ -68,6 +86,8 @@ class PlaybackController(
     private var timemap: Timemap? = null
     private var source: MidiFile? = null
     private var tracker: HighlightTracker? = null
+    private var measureStartsQuarters: List<Double> = emptyList()
+    private var silencedTracks: Set<Int> = emptySet()
     private val smoother = PositionSmoother()
 
     /** Score position where the next play() starts when nothing is resumable. */
@@ -80,6 +100,9 @@ class PlaybackController(
     /** Start point and count-in of the run being prepared or played. */
     private var runStartMs = 0.0
     private var runCountIn = false
+
+    /** Whether the current run loops by restarting (players without seamless looping). */
+    private var restartAtEnd = false
 
     private var job: Job? = null
     private var countInBeat = 0
@@ -95,7 +118,11 @@ class PlaybackController(
         this.timemap = timemap
         source = midi
         tracker = HighlightTracker(ActiveNoteIndex(timemap))
-        mutableState.update { it.copy(durationMs = timemap.durationMs, positionMs = 0.0, hasScore = true) }
+        measureStartsQuarters = timemap.measures.map { it.qstamp }
+        silencedTracks = emptySet()
+        mutableState.update {
+            it.copy(durationMs = timemap.durationMs, positionMs = 0.0, hasScore = true, loop = null, loopEnabled = false)
+        }
     }
 
     fun clearScore() {
@@ -103,7 +130,7 @@ class PlaybackController(
         timemap = null
         source = null
         tracker = null
-        mutableState.update { it.copy(durationMs = 0.0, positionMs = 0.0, hasScore = false) }
+        mutableState.update { it.copy(durationMs = 0.0, positionMs = 0.0, hasScore = false, loop = null, loopEnabled = false) }
     }
 
     fun togglePlay() = if (state.value.isRunning) pause() else play()
@@ -151,12 +178,12 @@ class PlaybackController(
         if (prepared != null || transport != Transport.STOPPED) player.stop()
         prepared = null
         resumable = false
-        cursorMs = 0.0
+        cursorMs = state.value.activeLoop?.startMs ?: 0.0
         tracker?.reset()
         showCountIn(0, 0)
         listener.onSegmentChanged(null, false)
         setTransport(Transport.STOPPED)
-        publishPosition(0.0, force = true)
+        publishPosition(cursorMs, force = true)
     }
 
     /** Moves to [scoreMs]. While playing, playback continues from there without a count-in. */
@@ -184,15 +211,36 @@ class PlaybackController(
         val clamped = TempoRange.clampPercent(percent)
         if (clamped == state.value.tempoPercent) return
         mutableState.update { it.copy(tempoPercent = clamped) }
-        when (transport) {
-            Transport.PLAYING -> startRun(currentScoreMs(), withCountIn = false)
-            Transport.PREPARING, Transport.COUNTING_IN -> startRun(runStartMs, runCountIn)
-            else -> resumable = false
-        }
+        restartIfRunning()
     }
 
     fun setCountInEnabled(enabled: Boolean) {
         mutableState.update { it.copy(countInEnabled = enabled) }
+    }
+
+    fun setMetronomeEnabled(enabled: Boolean) {
+        if (enabled == state.value.metronomeEnabled) return
+        mutableState.update { it.copy(metronomeEnabled = enabled) }
+        restartIfRunning()
+    }
+
+    /** Tracks to leave out (from the mixer's mute / solo state). */
+    fun setSilencedTracks(tracks: Set<Int>) {
+        if (tracks == silencedTracks) return
+        silencedTracks = tracks
+        restartIfRunning()
+    }
+
+    /** Sets (and enables) the A–B loop, or clears it with null. */
+    fun setLoop(range: TimeRange?) {
+        mutableState.update { it.copy(loop = range, loopEnabled = range != null) }
+        onLoopChanged()
+    }
+
+    fun setLoopEnabled(enabled: Boolean) {
+        if (state.value.loop == null || enabled == state.value.loopEnabled) return
+        mutableState.update { it.copy(loopEnabled = enabled) }
+        onLoopChanged()
     }
 
     fun release() {
@@ -201,23 +249,51 @@ class PlaybackController(
         player.release()
     }
 
+    private fun onLoopChanged() {
+        val loop = state.value.activeLoop
+        if (state.value.isRunning) {
+            restartIfRunning()
+        } else if (loop != null && cursorMs !in loop) {
+            seekTo(loop.startMs)
+        } else {
+            resumable = false
+        }
+    }
+
+    /** Applies changed settings: running playback continues from where it is. */
+    private fun restartIfRunning() {
+        when (transport) {
+            Transport.PLAYING -> startRun(currentScoreMs(), withCountIn = false)
+            Transport.PREPARING, Transport.COUNTING_IN -> startRun(runStartMs, runCountIn)
+            else -> resumable = false
+        }
+    }
+
     private fun startRun(scoreMs: Double, withCountIn: Boolean) {
         val midi = source ?: return
+        val loop = state.value.activeLoop
+        val start = if (loop != null && scoreMs !in loop) loop.startMs else scoreMs
         job?.cancel()
         tracker?.reset()
         showCountIn(0, 0)
-        cursorMs = scoreMs
+        cursorMs = start
         resumable = false
-        runStartMs = scoreMs
+        runStartMs = start
         runCountIn = withCountIn
         setTransport(Transport.PREPARING)
-        publishPosition(scoreMs, force = true)
-        val factor = TempoRange.factorFor(state.value.tempoPercent)
+        publishPosition(start, force = true)
+        val options = PlaybackOptions(
+            startMs = start,
+            endMs = loop?.endMs,
+            tempoFactor = TempoRange.factorFor(state.value.tempoPercent),
+            countIn = countIn.takeIf { withCountIn },
+            metronome = metronome.takeIf { state.value.metronomeEnabled },
+            measureStartsQuarters = measureStartsQuarters,
+            silencedTracks = silencedTracks,
+        )
         job = scope.launch {
             val run = try {
-                val built = withContext(workContext) {
-                    PlaybackMidiBuilder.build(midi, scoreMs, factor, countIn.takeIf { withCountIn })
-                }
+                val built = withContext(workContext) { PlaybackMidiBuilder.build(midi, options) }
                 player.load(built.bytes)
                 built
             } catch (e: CancellationException) {
@@ -229,6 +305,11 @@ class PlaybackController(
                 return@launch
             }
             prepared = run
+            restartAtEnd = loop != null && !player.supportsLooping
+            if (loop != null && player.supportsLooping) {
+                // Repeats skip the count-in: the loop starts where the music starts.
+                player.setLoop(run.window.leadInMs, run.endPlayerMs)
+            }
             smoother.reset()
             // Show where the music will start, also during the count-in.
             tracker?.update(run.window.scoreStartMs)?.let { listener.onSegmentChanged(it.segment, true) }
@@ -261,7 +342,13 @@ class PlaybackController(
     }
 
     private fun onPlayerCompleted() {
-        if (transport == Transport.PLAYING || transport == Transport.COUNTING_IN) stop()
+        if (transport != Transport.PLAYING && transport != Transport.COUNTING_IN) return
+        val loop = state.value.activeLoop
+        if (restartAtEnd && loop != null) {
+            startRun(loop.startMs, withCountIn = false)
+        } else {
+            stop()
+        }
     }
 
     private fun currentScoreMs(): Double {
