@@ -4,40 +4,64 @@
 
 | Milestone | What |
 |---|---|
-| M1 | Verovio rendering in a WebView, MediaPlayer playback, one playback clock, highlighting, cursor, auto-scroll/page turn, count-in, tap-to-seek, tempo |
-| M2 | A–B loop (long press two bars), mute/solo per part or staff, metronome (pickups, compound meters) |
-| M3 | FluidSynth playback (prebuilt LGPL release, own AAudio engine): sample-accurate events, sync with the heard audio, gapless loops, SoundFont import; Android MIDI fallback |
+| M1 | Verovio rendering in a WebView, playback, one playback clock, highlighting, cursor, auto-scroll/page turn, count-in, tap-to-seek, tempo |
+| M2 | A–B loop, mute/solo per part or staff, metronome (pickups, compound meters) |
+| M3 | FluidSynth playback with its own AAudio engine: sample-accurate events, sync with the heard audio, gapless loops, SoundFont import |
 | M4 | Library: recent scores, thumbnails, per-score settings, persistent file access |
-| M5 | Follow me: microphone pitch detection (own YIN), moves on when you play the expected note; follows the parts audible in the mixer |
+| M5 | Follow me: microphone pitch detection (own YIN); the score moves on when you play the expected note |
+| Design | "Crane & Ink" theme, redesigned screens, night mode setting, app icon, screenshot tests |
+
+All of the above has been verified on a device.
 
 ## Next
 
-### Verify on devices
-- Test the FluidSynth/AAudio path and the microphone path on a few phones:
-  - several Android versions
-  - Bluetooth output
-  - 16 KB page-size devices
-- Profile CPU use while listening.
-- Calibrate the default listening thresholds with real instruments (piano, voice, violin, guitar).
+### M6: Smoother on the music stand
+- **Instant return to a score:** keep the WebView alive when going back to the library,
+  instead of reloading Verovio.
+- **Large scores:** run Verovio in a Web Worker, so layout never freezes the page, and show
+  the first page while the rest lays out.
+- **Page-turn pedals:** Bluetooth page turners send PageUp/PageDown or arrow keys. Map them
+  to the next/previous page or system, and add a "turn on the last bar" option.
+- **Tablets and landscape:** a two-page spread in page view, a wider dock layout, and
+  foldable postures.
+- **Hands-free scrolling while practising without playback:** an optional slow,
+  tempo-based scroll.
 
-### M6 (optional): native Verovio
-- Build Verovio's C++ library with the NDK and render SVG off the main thread. This
-  removes the WebView's single-threaded layout pauses on large scores, and the reload when
-  you return to a score.
-- Rendering options:
-  - keep showing the SVG in the WebView, without the WASM step, or
-  - draw it natively, e.g. with AndroidSVG (Apache-2.0)
-- Verovio stays a separately built shared library, to keep the LGPL obligations simple.
-- Worth doing only if profiling on real devices shows the WASM path is too slow. The bridge
-  API (`load` / `highlight` / `setLayout`) was designed so the Kotlin side would barely change.
+### M7: Practice coach
+- **Speed trainer:** a loop starts at a lower tempo and goes up a step every N clean
+  repeats, until the target tempo.
+- **Wait for me:** the app plays the other parts and waits at each of your notes. It
+  combines Follow me with playback, so the accompaniment follows you.
+- **Chords in Follow me:** polyphonic detection, so a chord counts only when its notes are
+  heard, with a sensitivity setting per instrument.
+- **Practice log:** time spent per score, loops repeated, and Follow me accuracy per bar.
+  A "trouble bars" view suggests where to loop.
 
-### Smaller improvements
-- **Follow me:**
-  - Polyphonic detection, so whole chords count rather than any one note.
-  - A per-instrument sensitivity setting.
-  - A "wait for me" mode that plays the other parts and waits at each step.
-- **Loop:** an optional count-in before each repeat; gradual tempo increase per repeat.
-- **Library:** search, sorting, folders, and importing a whole directory.
-- **Performance:** keep the WebView alive when going back to the library.
-- **targetSdk 37:** after testing against Android 17 behaviour changes.
-- **Release builds:** R8/minify, an app bundle with per-ABI splits, and a signing config.
+### M8: Score tools
+- **Transpose:** both the notation (Verovio's `transpose` option) and the playback, for
+  transposing instruments or singing in another key.
+- **Mixer:** an instrument (General MIDI program) and a volume per part, not only mute/solo.
+- **Annotations:** pencil marks, fingerings and breath marks drawn over the score, saved
+  per score.
+- **Library organisation:** search, sorting, folders or setlists, and importing a whole
+  folder.
+
+### M9: Release
+- **License:** choose a license for the app's own code (to decide).
+- **Languages:** Spanish and English, with all strings in resources.
+- **Accessibility:**
+  - a TalkBack pass over all screens
+  - font scaling up to 200%
+  - large touch targets on the dock
+- **Release build:**
+  - R8/minify and a signing config
+  - an Android App Bundle with per-ABI splits (a smaller download than the 42 MB debug APK)
+  - targetSdk 37, after testing Android 17 behaviour changes
+- **Play Store:** listing, screenshots (from `app/screenshots`), and a privacy note. The
+  microphone is only used in Follow me, and nothing leaves the device.
+
+### Later / optional
+- **Native Verovio** (C++ via the NDK), only if M6's worker is still too slow on real
+  scores.
+- **Recording:** record yourself over the accompaniment and compare.
+- **Backup:** sync the library and settings through Android backup.
